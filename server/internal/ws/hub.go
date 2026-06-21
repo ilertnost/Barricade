@@ -1,8 +1,12 @@
 package ws
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"log"
+	"net/http"
+	"os"
 	"time"
 
 	"barricade/internal/db"
@@ -24,9 +28,14 @@ type Hub struct {
 	Unregister      chan *Client
 	pendingOffers   map[string]OutgoingMessage
 	pendingOfferReq chan pendingOfferEntry
+	fcmServerKey    string
 }
 
 func NewHub(database *db.DB) *Hub {
+	fcmKey := os.Getenv("FCM_SERVER_KEY")
+	if fcmKey == "" {
+		log.Println("FCM_SERVER_KEY not set — push notifications disabled")
+	}
 	return &Hub{
 		DB:              database,
 		clients:         make(map[string]*Client),
@@ -35,6 +44,7 @@ func NewHub(database *db.DB) *Hub {
 		Unregister:      make(chan *Client),
 		pendingOffers:   make(map[string]OutgoingMessage),
 		pendingOfferReq: make(chan pendingOfferEntry, 64),
+		fcmServerKey:    fcmKey,
 	}
 }
 
@@ -65,6 +75,9 @@ func (h *Hub) Run() {
 
 		case entry := <-h.pendingOfferReq:
 			h.pendingOffers[entry.targetID] = entry.msg
+			if h.fcmServerKey != "" {
+				go h.sendFCMOffer(entry.targetID, entry.msg)
+			}
 		}
 	}
 }
@@ -455,6 +468,62 @@ func (h *Hub) isMember(userID, channelID string) bool {
 		}
 	}
 	return false
+}
+
+func (h *Hub) sendFCMOffer(targetID string, msg OutgoingMessage) {
+	token, err := h.DB.GetFCMToken(targetID)
+	if err != nil {
+		return
+	}
+	payload, ok := msg.Payload.(map[string]interface{})
+	if !ok {
+		return
+	}
+	fromID := toString(payload["from_id"])
+	callerName := fromID
+	if user, err := h.DB.GetUser(fromID); err == nil {
+		if user.DisplayName != "" {
+			callerName = user.DisplayName
+		} else {
+			callerName = user.Username
+		}
+	}
+	body := map[string]interface{}{
+		"to": token,
+		"data": map[string]string{
+			"type":        "call_offer",
+			"channel_id":  toString(payload["channel_id"]),
+			"from_id":     fromID,
+			"caller_name": callerName,
+		},
+	}
+	data, _ := json.Marshal(body)
+	req, err := http.NewRequest("POST", "https://fcm.googleapis.com/fcm/send", bytes.NewReader(data))
+	if err != nil {
+		log.Printf("FCM request error: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "key="+h.fcmServerKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Printf("FCM push error: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("FCM push status: %d", resp.StatusCode)
+	}
+}
+
+func toString(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return fmt.Sprint(v)
 }
 
 func (h *Hub) handleReadMessage(client *Client, payload json.RawMessage) {

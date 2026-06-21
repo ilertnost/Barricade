@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "226292326736",
+    "project_id": "barricade-6dbdf",
+    "storage_bucket": "barricade-6dbdf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:226292326736:android:c9826b614cf4d21c5c4c55",
+        "android_client_info": {
+          "package_name": "com.barricade.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD-oMBc5TNNob2Nlh8Pn8mZuuxOHrtMsLc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

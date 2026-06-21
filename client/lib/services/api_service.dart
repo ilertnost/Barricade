@@ -307,6 +307,15 @@ class ApiService {
     return FileInfo.fromJson(jsonDecode(res.body));
   }
 
+  static Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body) async {
+    final res = await http.post(
+      Uri.parse('${Config.serverUrl}$path'),
+      headers: await headers(),
+      body: jsonEncode(body),
+    );
+    return jsonDecode(res.body);
+  }
+
   static String? get token => _token;
 
   static String? get currentUserId {

@@ -111,6 +111,12 @@ func (d *DB) migrate() error {
 	// Optional recovery phrase (bcrypt hash) for self-service password reset.
 	d.Exec(`ALTER TABLE users ADD COLUMN recovery_hash TEXT NOT NULL DEFAULT ''`)
 	d.Exec(`ALTER TABLE users ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0`)
+	d.Exec(`CREATE TABLE IF NOT EXISTS fcm_tokens (
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		token TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		PRIMARY KEY (user_id)
+	)`)
 	return nil
 }
 
@@ -670,6 +676,20 @@ func (d *DB) GetVoiceStates(channelID string) ([]*model.VoiceState, error) {
 		states = append(states, &vs)
 	}
 	return states, nil
+}
+
+func (d *DB) SetFCMToken(userID, token string) error {
+	_, err := d.Exec(`
+		INSERT INTO fcm_tokens (user_id, token, created_at) VALUES (?,?,?)
+		ON CONFLICT(user_id) DO UPDATE SET token=excluded.token, created_at=excluded.created_at`,
+		userID, token, time.Now().Unix())
+	return err
+}
+
+func (d *DB) GetFCMToken(userID string) (string, error) {
+	var token string
+	err := d.QueryRow(`SELECT token FROM fcm_tokens WHERE user_id = ?`, userID).Scan(&token)
+	return token, err
 }
 
 func boolToInt(b bool) int {

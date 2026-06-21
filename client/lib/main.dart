@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 
 import 'package:dynamic_color/dynamic_color.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:just_audio_background/just_audio_background.dart';
@@ -10,6 +11,7 @@ import 'l10n/strings.dart';
 import 'services/api_service.dart';
 import 'services/ws_service.dart';
 import 'services/call_service.dart';
+import 'services/fcm_service.dart';
 import 'services/theme_controller.dart';
 import 'services/locale_controller.dart';
 import 'services/quick_reaction_controller.dart';
@@ -21,6 +23,7 @@ import 'screens/settings_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
   await JustAudioBackground.init(
     androidNotificationChannelId: 'com.barricade.audio',
     androidNotificationChannelName: 'Воспроизведение',
@@ -46,6 +49,7 @@ class BarricadeApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AudioPlayerService()),
         Provider(create: (_) => WsService()),
         ChangeNotifierProvider(create: (ctx) => CallService(ctx.read<WsService>())),
+        Provider(create: (ctx) => FcmService(ctx.read<WsService>(), ctx.read<CallService>())),
       ],
       child: Consumer2<ThemeController, LocaleController>(
         builder: (context, themeCtrl, localeCtrl, _) {
@@ -128,8 +132,13 @@ class _AuthGateState extends State<AuthGate> {
     return Consumer<AppState>(
       builder: (_, state, __) {
         if (state.loggedIn) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
             context.read<WsService>().connect();
+            final fcm = context.read<FcmService>();
+            await FcmService.init();
+            fcm.setupListeners();
+            final token = await fcm.getToken();
+            if (token != null) fcm.registerToken(token);
           });
           return const HomeScreen();
         }

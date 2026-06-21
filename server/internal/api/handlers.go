@@ -570,6 +570,27 @@ func (h *Handler) AddChannelMember(w http.ResponseWriter, r *http.Request) {
 	jsonResp(w, http.StatusOK, map[string]string{"status": "added"})
 }
 
+func (h *Handler) RegisterFCMToken(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(string)
+	var body struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	if body.Token == "" {
+		jsonError(w, "token required", http.StatusBadRequest)
+		return
+	}
+	if err := h.DB.SetFCMToken(userID, body.Token); err != nil {
+		jsonError(w, "failed to store token", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
 func (h *Handler) RemoveChannelMember(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(string)
 	channelID := r.PathValue("id")

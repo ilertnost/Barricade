@@ -61,6 +61,7 @@ func NewRouter(database *db.DB, store *file.Store, hub *ws.Hub) http.Handler {
 		r.Get("/api/files/{id}", h.GetFile)
 		r.Get("/api/files/{id}/info", h.GetFileInfo)
 		r.Get("/api/users/{id}", h.GetUser)
+		r.Post("/api/fcm/register", h.RegisterFCMToken)
 	})
 	// DELETE registered with method pattern to avoid chi Group routing issues
 	r.With(AuthMiddleware).Delete("/api/channels/{id}", h.DeleteChannel)

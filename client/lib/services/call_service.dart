@@ -229,6 +229,27 @@ class CallService extends ChangeNotifier {
     _ws.sendWebRTC(channelId, 'offer', jsonEncode(sdp.toMap()), peerId);
   }
 
+  void prepareIncoming(String fromId, String channelId, String callerName) {
+    // Called from FCM push before the actual offer arrives via WebSocket.
+    // Sets up minimal state so the UI can show the incoming call immediately.
+    if (_state != CallState.idle) return;
+    _channelId = channelId;
+    _pendingCallerId = fromId;
+    _pendingCallerDisplayName = callerName;
+    _callPeerId = fromId;
+    _callPeerName = callerName;
+    _callIsIncoming = true;
+    _isDm = true;
+    _state = CallState.ringing;
+    _incomingCall = IncomingCallInfo(
+      fromId: fromId,
+      channelId: channelId,
+      fromDisplayName: callerName,
+    );
+    _playIncomingRing();
+    notifyListeners();
+  }
+
   Future<void> handleIncomingSignal(Map<String, dynamic> payload) async {
     final channelId = payload['channel_id'] as String? ?? _channelId;
     final type = payload['type'] as String?;
