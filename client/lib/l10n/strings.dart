@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 class Strings {
+  static String localeCode = 'ru';
   static final Map<String, Map<String, String>> _strings = {
     'en': {
       'app.title': 'Barricade',
@@ -101,7 +102,7 @@ class Strings {
   };
 
   static String t(String key, {BuildContext? context}) {
-    final locale = context != null ? Localizations.localeOf(context).languageCode : 'ru';
+    final locale = context != null ? Localizations.localeOf(context).languageCode : localeCode;
     return _strings[locale]?[key] ?? _strings['en']?[key] ?? key;
   }
 }

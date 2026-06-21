@@ -7,6 +7,7 @@ import 'l10n/strings.dart';
 import 'services/api_service.dart';
 import 'services/ws_service.dart';
 import 'services/theme_controller.dart';
+import 'services/locale_controller.dart';
 import 'services/audio_player_service.dart';
 import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
@@ -32,11 +33,12 @@ class BarricadeApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => AppState()),
         ChangeNotifierProvider(create: (_) => ThemeController()..load()),
+        ChangeNotifierProvider(create: (_) => LocaleController()..load()),
         ChangeNotifierProvider(create: (_) => AudioPlayerService()),
         Provider(create: (_) => WsService()),
       ],
-      child: Consumer<ThemeController>(
-        builder: (context, themeCtrl, _) {
+      child: Consumer2<ThemeController, LocaleController>(
+        builder: (context, themeCtrl, localeCtrl, _) {
           return DynamicColorBuilder(
             builder: (lightDynamic, darkDynamic) {
               ColorScheme lightScheme;
@@ -54,7 +56,7 @@ class BarricadeApp extends StatelessWidget {
               return MaterialApp(
                 title: Strings.t('app.title'),
                 debugShowCheckedModeBanner: false,
-                locale: const Locale('ru'),
+                locale: localeCtrl.locale,
                 supportedLocales: const [Locale('ru'), Locale('en')],
                 localizationsDelegates: const [
                   GlobalMaterialLocalizations.delegate,

@@ -6,6 +6,7 @@ import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/ws_service.dart';
 import '../services/theme_controller.dart';
+import '../services/locale_controller.dart';
 import '../main.dart' show AppState;
 import 'chat_screen.dart';
 
@@ -151,6 +152,8 @@ class _SettingsBodyState extends State<SettingsBody> {
             onTap: _editUsername,
           ),
           const Divider(),
+          const _LanguageTile(),
+          const Divider(),
           const _SectionHeader('Оформление'),
           const _ThemeModeTile(),
           const _AccentColorTile(),
@@ -288,6 +291,28 @@ class _SettingsBodyState extends State<SettingsBody> {
 
   void _showUserSearch() {
     showSearch(context: context, delegate: UserSearchDialog());
+  }
+}
+
+class _LanguageTile extends StatelessWidget {
+  const _LanguageTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final ctrl = context.watch<LocaleController>();
+    return ListTile(
+      leading: const Icon(Icons.language),
+      title: const Text('Язык / Language'),
+      trailing: SegmentedButton<String>(
+        segments: const [
+          ButtonSegment(value: 'ru', label: Text('RU')),
+          ButtonSegment(value: 'en', label: Text('EN')),
+        ],
+        selected: {ctrl.locale.languageCode},
+        showSelectedIcon: false,
+        onSelectionChanged: (s) => ctrl.setLocale(Locale(s.first)),
+      ),
+    );
   }
 }
 
