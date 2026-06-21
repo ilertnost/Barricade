@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'l10n/strings.dart';
 import 'services/api_service.dart';
 import 'services/ws_service.dart';
+import 'services/call_service.dart';
 import 'services/theme_controller.dart';
 import 'services/locale_controller.dart';
 import 'services/quick_reaction_controller.dart';
@@ -38,6 +39,7 @@ class BarricadeApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => QuickReactionController()..load()),
         ChangeNotifierProvider(create: (_) => AudioPlayerService()),
         Provider(create: (_) => WsService()),
+        ChangeNotifierProvider(create: (ctx) => CallService(ctx.read<WsService>())),
       ],
       child: Consumer2<ThemeController, LocaleController>(
         builder: (context, themeCtrl, localeCtrl, _) {

@@ -5,7 +5,15 @@ import '../services/api_service.dart';
 
 class WsService {
   WebSocketChannel? _channel;
-  Function(Map<String, dynamic>)? onMessage;
+  final List<void Function(Map<String, dynamic>)> _listeners = [];
+
+  void addListener(void Function(Map<String, dynamic>) fn) {
+    _listeners.add(fn);
+  }
+
+  void removeListener(void Function(Map<String, dynamic>) fn) {
+    _listeners.remove(fn);
+  }
 
   bool get isConnected => _channel != null;
 
@@ -19,8 +27,9 @@ class WsService {
 
     _channel!.stream.listen(
       (data) {
-        if (onMessage != null) {
-          onMessage!(jsonDecode(data as String));
+        final msg = jsonDecode(data as String) as Map<String, dynamic>;
+        for (final fn in _listeners) {
+          fn(msg);
         }
       },
       onError: (err) => null,

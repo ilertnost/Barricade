@@ -87,8 +87,14 @@ class _ChatsTabState extends State<_ChatsTab> {
     _load();
   }
 
+  @override
+  void dispose() {
+    context.read<WsService>().removeListener(_handleWsMessage);
+    super.dispose();
+  }
+
   void _bindWs() {
-    context.read<WsService>().onMessage = _handleWsMessage;
+    context.read<WsService>().addListener(_handleWsMessage);
   }
 
   void _handleWsMessage(Map<String, dynamic> data) {

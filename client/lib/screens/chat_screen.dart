@@ -7,6 +7,7 @@ import '../l10n/strings.dart';
 import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/ws_service.dart';
+import '../services/call_service.dart';
 import '../services/audio_player_service.dart';
 import '../services/locale_controller.dart';
 import '../services/quick_reaction_controller.dart';
@@ -14,6 +15,7 @@ import '../services/file_saver.dart';
 import '../widgets/media_utils.dart';
 import '../widgets/user_avatar.dart';
 import 'channel_info_screen.dart';
+import 'call_screen.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/voice_recorder.dart';
 import '../widgets/video_circle.dart';
@@ -38,17 +40,26 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _peerOnline = false;
   String? _peerLastSeen;
   String _peerName = '';
+  String? _peerId;
 
   @override
   void initState() {
     super.initState();
     _filterSenderId = widget.filterSenderId;
     _loadMessages();
-    context.read<WsService>().onMessage = _handleWsMessage;
+    context.read<WsService>().addListener(_handleWsMessage);
     context.read<WsService>().joinChannel(widget.channel.id);
     context.read<WsService>().sendReadReceipt(widget.channel.id);
     _resolvePostPermission();
     if (widget.channel.type == 'dm') _loadPeerInfo();
+  }
+
+  @override
+  void dispose() {
+    context.read<WsService>().removeListener(_handleWsMessage);
+    _msgCtrl.dispose();
+    _scrollCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _loadPeerInfo() async {
@@ -57,6 +68,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted) return;
       final peer = members.where((m) => m.id != ApiService.currentUserId).firstOrNull;
       if (peer != null) {
+        _peerId = peer.id;
         final user = await ApiService.getUser(peer.id);
         if (mounted) {
           setState(() {
@@ -75,6 +87,36 @@ class _ChatScreenState extends State<ChatScreen> {
     final me = members.where((m) => m.id == ApiService.currentUserId);
     final canPost = me.isNotEmpty && (me.first.role == 'owner' || me.first.role == 'admin');
     if (mounted) setState(() => _canPost = canPost);
+  }
+
+  void _startCall({bool video = false}) {
+    final call = context.read<CallService>();
+    if (widget.channel.type == 'dm') {
+      if (_peerId == null) return;
+      Navigator.push(context, MaterialPageRoute(
+        builder: (_) => CallScreen(
+          channelId: widget.channel.id,
+          peerIds: [_peerId!],
+          video: video,
+        ),
+      ));
+    } else {
+      // Group/guild: fetch members, call all others
+      ApiService.getMembers(widget.channel.id).then((members) {
+        final others = members
+            .where((m) => m.id != ApiService.currentUserId)
+            .map((m) => m.id)
+            .toList();
+        if (!mounted || others.isEmpty) return;
+        Navigator.push(context, MaterialPageRoute(
+          builder: (_) => CallScreen(
+            channelId: widget.channel.id,
+            peerIds: others,
+            video: video,
+          ),
+        ));
+      });
+    }
   }
 
   String _formatLastSeen(String? lastSeen) {
@@ -468,6 +510,17 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       ),
       actions: [
+        IconButton(
+          icon: const Icon(Icons.phone),
+          tooltip: Strings.t('common.call'),
+          onPressed: _startCall,
+        ),
+        if (widget.channel.type != 'dm')
+          IconButton(
+            icon: const Icon(Icons.videocam),
+            tooltip: Strings.t('common.video_call'),
+            onPressed: () => _startCall(video: true),
+          ),
         if (_filterSenderId != null)
           IconButton(
             icon: const Icon(Icons.filter_alt_off),
@@ -690,13 +743,6 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _msgCtrl.dispose();
-    _scrollCtrl.dispose();
-    super.dispose();
   }
 }
 
