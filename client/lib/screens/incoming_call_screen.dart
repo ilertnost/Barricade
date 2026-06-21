@@ -84,21 +84,17 @@ class IncomingCallBanner extends StatelessWidget {
               _BannerBtn(
                 icon: Icons.call,
                 color: Colors.green,
-                onTap: () async {
-                  final chId = info.channelId;
-                  final fromId = info.fromId;
-                  await call.answerIncomingCall();
-                  if (context.mounted) {
-                    Navigator.of(context, rootNavigator: true).push(
-                      MaterialPageRoute(
-                        builder: (_) => CallScreen(
-                          channelId: chId,
-                          peerIds: [fromId],
-                          video: false,
-                        ),
+                onTap: () {
+                  Navigator.of(context, rootNavigator: true).push(
+                    MaterialPageRoute(
+                      builder: (_) => CallScreen(
+                        channelId: info.channelId,
+                        peerIds: [info.fromId],
+                        video: false,
                       ),
-                    );
-                  }
+                    ),
+                  );
+                  call.answerIncomingCall();
                 },
               ),
               const SizedBox(width: 8),
@@ -144,80 +140,156 @@ class IncomingCallFullscreen extends StatelessWidget {
     return Material(
       color: Colors.black.withOpacity(0.85),
       child: SafeArea(
-        child: Column(
-          children: [
-            const Spacer(flex: 2),
-            CircleAvatar(
-              radius: 56,
-              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-              child: Text(
-                info.fromDisplayName.isNotEmpty
-                    ? info.fromDisplayName[0].toUpperCase()
-                    : '?',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 40,
-                  color: Theme.of(context).colorScheme.onPrimaryContainer,
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              info.fromDisplayName,
-              style: const TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 28,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              Strings.t('common.calling'),
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.white.withOpacity(0.7),
-              ),
-            ),
-            const Spacer(flex: 3),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 48),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _FullBtn(
-                    icon: Icons.call_end,
-                    color: Colors.red,
-                    label: Strings.t('common.decline'),
-                    onTap: () => call.declineIncomingCall(),
-                  ),
-                  _FullBtn(
-                    icon: Icons.call,
-                    color: Colors.green,
-                    label: Strings.t('common.accept'),
-                    onTap: () async {
-                      final chId = info.channelId;
-                      final fromId = info.fromId;
-                      await call.answerIncomingCall();
-                      if (context.mounted) {
-                        Navigator.of(context, rootNavigator: true).push(
-                          MaterialPageRoute(
-                            builder: (_) => CallScreen(
-                              channelId: chId,
-                              peerIds: [fromId],
-                              video: false,
-                            ),
-                          ),
-                        );
-                      }
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ],
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isLandscape = constraints.maxWidth > constraints.maxHeight;
+            if (isLandscape) {
+              return _buildLandscape(context, call, info);
+            }
+            return _buildPortrait(context, call, info);
+          },
         ),
       ),
     );
+  }
+
+  Widget _buildPortrait(BuildContext context, CallService call, IncomingCallInfo info) {
+    return Column(
+      children: [
+        const Spacer(flex: 2),
+        CircleAvatar(
+          radius: 56,
+          backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+          child: Text(
+            info.fromDisplayName.isNotEmpty
+                ? info.fromDisplayName[0].toUpperCase()
+                : '?',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 40,
+              color: Theme.of(context).colorScheme.onPrimaryContainer,
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        Text(
+          info.fromDisplayName,
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 28,
+            color: Colors.white,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          Strings.t('common.calling'),
+          style: TextStyle(
+            fontSize: 16,
+            color: Colors.white.withOpacity(0.7),
+          ),
+        ),
+        const Spacer(flex: 3),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 48),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _FullBtn(
+                icon: Icons.call_end,
+                color: Colors.red,
+                label: Strings.t('common.decline'),
+                onTap: () => call.declineIncomingCall(),
+              ),
+              _FullBtn(
+                icon: Icons.call,
+                color: Colors.green,
+                label: Strings.t('common.accept'),
+                onTap: () => _acceptCall(context, call, info),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLandscape(BuildContext context, CallService call, IncomingCallInfo info) {
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircleAvatar(
+                radius: 32,
+                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                child: Text(
+                  info.fromDisplayName.isNotEmpty
+                      ? info.fromDisplayName[0].toUpperCase()
+                      : '?',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 24,
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                info.fromDisplayName,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 20,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                Strings.t('common.calling'),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.white.withOpacity(0.7),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(right: 32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _FullBtn(
+                icon: Icons.call_end,
+                color: Colors.red,
+                label: Strings.t('common.decline'),
+                onTap: () => call.declineIncomingCall(),
+              ),
+              const SizedBox(height: 24),
+              _FullBtn(
+                icon: Icons.call,
+                color: Colors.green,
+                label: Strings.t('common.accept'),
+                onTap: () => _acceptCall(context, call, info),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _acceptCall(BuildContext context, CallService call, IncomingCallInfo info) {
+    Navigator.of(context, rootNavigator: true).push(
+      MaterialPageRoute(
+        builder: (_) => CallScreen(
+          channelId: info.channelId,
+          peerIds: [info.fromId],
+          video: false,
+        ),
+      ),
+    );
+    call.answerIncomingCall();
   }
 }
 

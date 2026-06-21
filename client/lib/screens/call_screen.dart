@@ -34,7 +34,9 @@ class _CallScreenState extends State<CallScreen> {
       if (mounted) setState(() {});
     });
     call.addListener(_onCallStateChanged);
-    if (call.state != CallState.connected) {
+    if (call.state == CallState.ringing) {
+      call.answerIncomingCall();
+    } else if (call.state != CallState.connected) {
       call.startCall(widget.channelId, widget.peerIds, video: widget.video);
     }
   }
