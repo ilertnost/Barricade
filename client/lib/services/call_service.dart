@@ -348,7 +348,11 @@ class CallService extends ChangeNotifier {
       e.value.dispose();
     }
     _voiceRenderers.clear();
+    for (final uid in _voiceParticipants) {
+      _remoteStreams.remove(uid);
+    }
     _voiceParticipants.clear();
+    _volumes.clear();
     _voiceChannelId = null;
     _inVoiceRoom = false;
     if (!inCall) {
@@ -770,7 +774,28 @@ class CallService extends ChangeNotifier {
 
   void setVolume(String userId, double volume) {
     _volumes[userId] = volume;
+    _applyVolume(userId, volume);
     _updateParticipants();
+  }
+
+  Future<void> _applyVolume(String userId, double volume) async {
+    if (_voiceRenderers.containsKey(userId)) {
+      try {
+        await _voiceRenderers[userId]!.setVolume(volume);
+      } catch (e) {
+        debugPrint('renderer setVolume error: $e');
+      }
+      return;
+    }
+    final stream = _remoteStreams[userId];
+    if (stream == null) return;
+    final track = stream.getAudioTracks().firstOrNull;
+    if (track == null) return;
+    try {
+      await Helper.setVolume(volume, track);
+    } catch (e) {
+      debugPrint('Helper.setVolume error: $e');
+    }
   }
 
   @override
