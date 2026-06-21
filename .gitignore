@@ -28,3 +28,4 @@ client/ios/.symlinks/
 Thumbs.db
 CLAUDE.md
 server/server
+server_arm64
