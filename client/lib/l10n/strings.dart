@@ -122,6 +122,9 @@ class Strings {
       'theme.dark': 'Dark',
       'theme.accent': 'Accent',
       'language.title': 'Language',
+      'chat.quick_reaction': 'Quick Reaction',
+      'chat.quick_reaction_hint': 'Double-tap message to react',
+      'chat.reactions': 'Reactions',
     },
     'ru': {
       'app.title': 'Barricade',
@@ -242,6 +245,9 @@ class Strings {
       'theme.dark': 'Тёмная',
       'theme.accent': 'Акцент',
       'language.title': 'Язык',
+      'chat.quick_reaction': 'Быстрая реакция',
+      'chat.quick_reaction_hint': 'Двойной тап по сообщению',
+      'chat.reactions': 'Реакции',
     },
   };
 

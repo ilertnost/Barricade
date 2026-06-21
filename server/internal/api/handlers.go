@@ -552,8 +552,11 @@ func (h *Handler) RemoveChannelMember(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(string)
 	channelID := r.PathValue("id")
 	targetID := r.PathValue("userId")
-	if _, ok := h.requireRole(w, channelID, userID, 2); !ok {
-		return
+	// Anyone can remove themselves (leave). Admins can remove others.
+	if targetID != userID {
+		if _, ok := h.requireRole(w, channelID, userID, 2); !ok {
+			return
+		}
 	}
 	ch, err := h.DB.GetChannel(channelID)
 	if err != nil {

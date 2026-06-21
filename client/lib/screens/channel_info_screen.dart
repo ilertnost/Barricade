@@ -58,6 +58,12 @@ class _ChannelInfoScreenState extends State<ChannelInfoScreen> {
           actions: [
             if (_isOwner)
               IconButton(icon: const Icon(Icons.edit), tooltip: Strings.t('common.edit'), onPressed: _editSettings),
+            if (!_isOwner && !widget.channel.isDm)
+              IconButton(
+                icon: const Icon(Icons.exit_to_app),
+                tooltip: 'Leave',
+                onPressed: () => _leaveChannel(context),
+              ),
           ],
         ),
         body: Column(
@@ -243,6 +249,27 @@ class _ChannelInfoScreenState extends State<ChannelInfoScreen> {
       if (mounted) setState(() => _channel = updated);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+
+  Future<void> _leaveChannel(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(Strings.t('channel.delete_confirm').replaceFirst('{name}', _channel.name)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(Strings.t('common.cancel'))),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(Strings.t('common.delete'))),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final ok = await ApiService.removeMember(_channel.id, _myId);
+    if (!mounted) return;
+    if (ok) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to leave')));
     }
   }
 }

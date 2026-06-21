@@ -69,6 +69,10 @@ func (h *Hub) handleMessage(client *Client, raw []byte) {
 		h.handleTyping(client, msg.Payload)
 	case "voice_state_update":
 		h.handleVoiceStateUpdate(client, msg.Payload)
+	case "reaction_add":
+		h.handleAddReaction(client, msg.Payload)
+	case "reaction_remove":
+		h.handleRemoveReaction(client, msg.Payload)
 	case "webrtc":
 		h.handleWebRTC(client, msg.Payload)
 	default:
@@ -113,6 +117,7 @@ func (h *Hub) handleSendMessage(client *Client, payload json.RawMessage) {
 		MimeType:          mimeType,
 		ReplyToID:         p.ReplyToID,
 		CreatedAt:         time.Now().UTC(),
+		Reactions:         []model.Reaction{},
 	}
 	if err := h.DB.SaveMessage(msg); err != nil {
 		log.Printf("save message: %v", err)
@@ -278,6 +283,67 @@ func (h *Hub) handleWebRTC(client *Client, payload json.RawMessage) {
 			},
 		})
 	}
+}
+
+func (h *Hub) handleAddReaction(client *Client, payload json.RawMessage) {
+	var p AddReactionPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		client.SendError("invalid payload")
+		return
+	}
+	msg, err := h.DB.GetMessage(p.MessageID)
+	if err != nil {
+		client.SendError("message not found")
+		return
+	}
+	if !h.isMember(client.UserID, msg.ChannelID) {
+		client.SendError("not a member of this channel")
+		return
+	}
+	if err := h.DB.AddReaction(p.MessageID, client.UserID, p.Emoji, client.Username); err != nil {
+		log.Printf("add reaction: %v", err)
+		client.SendError("failed to add reaction")
+		return
+	}
+	h.broadcast(msg.ChannelID, OutgoingMessage{
+		Type: "reaction_add",
+		Payload: map[string]interface{}{
+			"message_id": p.MessageID,
+			"user_id":    client.UserID,
+			"emoji":      p.Emoji,
+			"username":   client.Username,
+		},
+	})
+}
+
+func (h *Hub) handleRemoveReaction(client *Client, payload json.RawMessage) {
+	var p RemoveReactionPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		client.SendError("invalid payload")
+		return
+	}
+	msg, err := h.DB.GetMessage(p.MessageID)
+	if err != nil {
+		client.SendError("message not found")
+		return
+	}
+	if !h.isMember(client.UserID, msg.ChannelID) {
+		client.SendError("not a member of this channel")
+		return
+	}
+	if err := h.DB.RemoveReaction(p.MessageID, client.UserID, p.Emoji); err != nil {
+		log.Printf("remove reaction: %v", err)
+		client.SendError("failed to remove reaction")
+		return
+	}
+	h.broadcast(msg.ChannelID, OutgoingMessage{
+		Type: "reaction_remove",
+		Payload: map[string]interface{}{
+			"message_id": p.MessageID,
+			"user_id":    client.UserID,
+			"emoji":      p.Emoji,
+		},
+	})
 }
 
 func (h *Hub) broadcast(channelID string, msg OutgoingMessage) {

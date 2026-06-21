@@ -71,6 +71,7 @@ class Message {
   final String status;
   final String createdAt;
   final String? editedAt;
+  final List<Reaction> reactions;
 
   Message({
     required this.id,
@@ -85,7 +86,16 @@ class Message {
     this.status = 'sent',
     required this.createdAt,
     this.editedAt,
+    this.reactions = const [],
   });
+
+  Message copyWith({List<Reaction>? reactions}) => Message(
+    id: id, channelId: channelId, senderId: senderId,
+    senderUsername: senderUsername, senderDisplayName: senderDisplayName,
+    content: content, fileId: fileId, mimeType: mimeType,
+    replyToId: replyToId, status: status, createdAt: createdAt,
+    editedAt: editedAt, reactions: reactions ?? this.reactions,
+  );
 
   factory Message.fromJson(Map<String, dynamic> json) => Message(
     id: json['id'],
@@ -100,6 +110,25 @@ class Message {
     status: json['status'] ?? 'sent',
     createdAt: json['created_at'] ?? '',
     editedAt: json['edited_at'],
+    reactions: (json['reactions'] as List?)?.map((r) => Reaction.fromJson(r)).toList() ?? [],
+  );
+}
+
+class Reaction {
+  final String messageId;
+  final String userId;
+  final String emoji;
+  final String? username;
+  final String? createdAt;
+
+  Reaction({required this.messageId, required this.userId, required this.emoji, this.username, this.createdAt});
+
+  factory Reaction.fromJson(Map<String, dynamic> json) => Reaction(
+    messageId: json['message_id'] ?? '',
+    userId: json['user_id'] ?? '',
+    emoji: json['emoji'] ?? '',
+    username: json['username'],
+    createdAt: json['created_at'],
   );
 }
 

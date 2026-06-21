@@ -50,3 +50,13 @@ type WebRTCPayload struct {
 type TypingPayload struct {
 	ChannelID string `json:"channel_id"`
 }
+
+type AddReactionPayload struct {
+	MessageID string `json:"message_id"`
+	Emoji     string `json:"emoji"`
+}
+
+type RemoveReactionPayload struct {
+	MessageID string `json:"message_id"`
+	Emoji     string `json:"emoji"`
+}

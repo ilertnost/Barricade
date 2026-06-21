@@ -13,18 +13,27 @@ type User struct {
 }
 
 type Message struct {
-	ID                string     `json:"id"`
-	ChannelID         string     `json:"channel_id"`
-	SenderID          string     `json:"sender_id"`
-	SenderUsername    string     `json:"sender_username"`
-	SenderDisplayName string     `json:"sender_display_name"`
-	Content           string     `json:"content"`
-	FileID            *string    `json:"file_id"`
-	MimeType          string     `json:"mime_type"`
-	ReplyToID         *string    `json:"reply_to_id"`
-	Status            string     `json:"status"`
-	CreatedAt         time.Time  `json:"created_at"`
-	EditedAt          *time.Time `json:"edited_at,omitempty"`
+	ID                string      `json:"id"`
+	ChannelID         string      `json:"channel_id"`
+	SenderID          string      `json:"sender_id"`
+	SenderUsername    string      `json:"sender_username"`
+	SenderDisplayName string      `json:"sender_display_name"`
+	Content           string      `json:"content"`
+	FileID            *string     `json:"file_id"`
+	MimeType          string      `json:"mime_type"`
+	ReplyToID         *string     `json:"reply_to_id"`
+	Status            string      `json:"status"`
+	CreatedAt         time.Time   `json:"created_at"`
+	EditedAt          *time.Time  `json:"edited_at,omitempty"`
+	Reactions         []Reaction  `json:"reactions,omitempty"`
+}
+
+type Reaction struct {
+	MessageID string    `json:"message_id"`
+	UserID    string    `json:"user_id"`
+	Emoji     string    `json:"emoji"`
+	Username  string    `json:"username,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type ChannelType string

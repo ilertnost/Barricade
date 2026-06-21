@@ -9,6 +9,7 @@ import '../services/api_service.dart';
 import '../services/ws_service.dart';
 import '../services/audio_player_service.dart';
 import '../services/locale_controller.dart';
+import '../services/quick_reaction_controller.dart';
 import '../services/file_saver.dart';
 import '../widgets/media_utils.dart';
 import '../widgets/user_avatar.dart';
@@ -81,6 +82,41 @@ class _ChatScreenState extends State<ChatScreen> {
       final chId = payload['channel_id'] as String?;
       if (msgId != null && chId == widget.channel.id) {
         setState(() => _messages.removeWhere((m) => m.id == msgId));
+      }
+    } else if (type == 'reaction_add' && payload != null) {
+      final msgId = payload['message_id'] as String?;
+      if (msgId != null) {
+        setState(() {
+          final idx = _messages.indexWhere((m) => m.id == msgId);
+          if (idx != -1) {
+            final existing = _messages[idx].reactions;
+            _messages[idx] = _messages[idx].copyWith(reactions: [
+              ...existing,
+              Reaction(
+                messageId: msgId,
+                userId: payload['user_id'] ?? '',
+                emoji: payload['emoji'] ?? '',
+                username: payload['username'],
+              ),
+            ]);
+          }
+        });
+      }
+    } else if (type == 'reaction_remove' && payload != null) {
+      final msgId = payload['message_id'] as String?;
+      final userId = payload['user_id'] as String?;
+      final emoji = payload['emoji'] as String?;
+      if (msgId != null && userId != null && emoji != null) {
+        setState(() {
+          final idx = _messages.indexWhere((m) => m.id == msgId);
+          if (idx != -1) {
+            _messages[idx] = _messages[idx].copyWith(reactions:
+              _messages[idx].reactions.where((r) =>
+                r.userId != userId || r.emoji != emoji
+              ).toList(),
+            );
+          }
+        });
       }
     }
   }
@@ -501,6 +537,18 @@ class _ChatScreenState extends State<ChatScreen> {
                                       _filterSenderId = _filterSenderId == msg.senderId ? null : msg.senderId;
                                     })
                                 : null,
+                            onTap: () => _showMessageMenu(context, msg),
+                            onDoubleTap: () {
+                              final quickEmoji = context.read<QuickReactionController>().emoji;
+                              final ws = context.read<WsService>();
+                              final hasIt = msg.reactions.any((r) =>
+                                  r.userId == ApiService.currentUserId && r.emoji == quickEmoji);
+                              if (hasIt) {
+                                ws.removeReaction(msg.id, quickEmoji);
+                              } else {
+                                ws.addReaction(msg.id, quickEmoji);
+                              }
+                            },
                           ),
                         ],
                       );
@@ -512,6 +560,78 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
     ),
+    );
+  }
+
+  void _showMessageMenu(BuildContext context, Message msg) {
+    final ws = context.read<WsService>();
+    final isOwn = msg.senderId == ApiService.currentUserId;
+    final hasText = msg.content.isNotEmpty;
+
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // emoji row
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    for (final e in QuickReactionController.emojis)
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          final hasIt = msg.reactions.any((r) =>
+                              r.userId == ApiService.currentUserId && r.emoji == e);
+                          if (hasIt) {
+                            ws.removeReaction(msg.id, e);
+                          } else {
+                            ws.addReaction(msg.id, e);
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: msg.reactions.any((r) =>
+                                r.userId == ApiService.currentUserId && r.emoji == e)
+                                ? Theme.of(context).colorScheme.primaryContainer
+                                : null,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(e, style: const TextStyle(fontSize: 26)),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              if (isOwn && hasText)
+                ListTile(
+                  leading: const Icon(Icons.edit),
+                  title: Text(Strings.t('chat.edit_message')),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _editMessage(msg);
+                  },
+                ),
+              if (isOwn)
+                ListTile(
+                  leading: const Icon(Icons.delete_outline),
+                  title: Text(Strings.t('common.delete')),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    ws.deleteMessage(msg.id);
+                  },
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -534,6 +654,8 @@ class _MessageBubble extends StatelessWidget {
   final bool selected;
   final VoidCallback? onLongPress;
   final VoidCallback? onSelectTap;
+  final VoidCallback? onTap;
+  final VoidCallback? onDoubleTap;
 
   const _MessageBubble({
     required this.msg,
@@ -546,6 +668,8 @@ class _MessageBubble extends StatelessWidget {
     this.selected = false,
     this.onLongPress,
     this.onSelectTap,
+    this.onTap,
+    this.onDoubleTap,
   });
 
   Widget _statusIcon(BuildContext context) {
@@ -563,6 +687,41 @@ class _MessageBubble extends StatelessWidget {
       msg.senderDisplayName.isNotEmpty ? msg.senderDisplayName : msg.senderUsername;
 
   String get _time => msg.createdAt.length >= 16 ? msg.createdAt.substring(11, 16) : msg.createdAt;
+
+  /// Group reactions by emoji, count them, and note if current user reacted.
+  List<_ReactionGroup> get _reactionGroups {
+    final map = <String, List<Reaction>>{};
+    for (final r in msg.reactions) {
+      map.putIfAbsent(r.emoji, () => []).add(r);
+    }
+    return map.entries.map((e) => _ReactionGroup(
+      emoji: e.key,
+      count: e.value.length,
+      me: e.value.any((r) => r.userId == ApiService.currentUserId),
+    )).toList();
+  }
+
+  Widget _buildReactionsRow(BuildContext context) {
+    final groups = _reactionGroups;
+    if (groups.isEmpty) return const SizedBox.shrink();
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 2),
+      child: Wrap(
+        spacing: 4,
+        runSpacing: 2,
+        children: groups.map((g) => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: g.me ? cs.primaryContainer.withValues(alpha: 0.6) : cs.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(12),
+            border: g.me ? Border.all(color: cs.primary.withValues(alpha: 0.4), width: 1) : null,
+          ),
+          child: Text('${g.emoji} ${g.count}', style: TextStyle(fontSize: 13, color: cs.onSurface)),
+        )).toList(),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -607,6 +766,7 @@ class _MessageBubble extends StatelessWidget {
               ],
             ),
           ),
+          _buildReactionsRow(context),
         ],
       ),
     );
@@ -649,7 +809,8 @@ class _MessageBubble extends StatelessWidget {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onLongPress: onLongPress,
-      onTap: selectionMode ? onSelectTap : null,
+      onTap: selectionMode ? onSelectTap : onTap,
+      onDoubleTap: selectionMode ? null : onDoubleTap,
       child: Container(
         color: selected ? cs.primary.withValues(alpha: 0.16) : null,
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -658,6 +819,13 @@ class _MessageBubble extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ReactionGroup {
+  final String emoji;
+  final int count;
+  final bool me;
+  const _ReactionGroup({required this.emoji, required this.count, required this.me});
 }
 
 class _DateSeparator extends StatelessWidget {

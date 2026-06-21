@@ -7,6 +7,7 @@ import '../services/api_service.dart';
 import '../services/ws_service.dart';
 import '../services/theme_controller.dart';
 import '../services/locale_controller.dart';
+import '../services/quick_reaction_controller.dart';
 import '../main.dart' show AppState;
 import 'chat_screen.dart';
 
@@ -153,6 +154,8 @@ class _SettingsBodyState extends State<SettingsBody> {
             onTap: _editUsername,
           ),
           const Divider(),
+          const _QuickReactionTile(),
+          const Divider(),
           const _LanguageTile(),
           const Divider(),
           _SectionHeader(Strings.t('theme.title')),
@@ -292,6 +295,28 @@ class _SettingsBodyState extends State<SettingsBody> {
 
   void _showUserSearch() {
     showSearch(context: context, delegate: UserSearchDialog());
+  }
+}
+
+class _QuickReactionTile extends StatelessWidget {
+  const _QuickReactionTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final ctrl = context.watch<QuickReactionController>();
+    return ListTile(
+      leading: const Icon(Icons.add_reaction_outlined),
+      title: Text(Strings.t('chat.quick_reaction')),
+      subtitle: Text(Strings.t('chat.quick_reaction_hint')),
+      trailing: PopupMenuButton<String>(
+        icon: Text(ctrl.emoji, style: const TextStyle(fontSize: 24)),
+        onSelected: (e) => ctrl.setEmoji(e),
+        itemBuilder: (_) => QuickReactionController.emojis.map((e) => PopupMenuItem(
+          value: e,
+          child: Text(e, style: const TextStyle(fontSize: 24)),
+        )).toList(),
+      ),
+    );
   }
 }
 

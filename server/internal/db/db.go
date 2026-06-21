@@ -76,6 +76,14 @@ func (d *DB) migrate() error {
 			uploaded_by TEXT NOT NULL REFERENCES users(id),
 			created_at INTEGER NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS reactions (
+			message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+			user_id TEXT NOT NULL REFERENCES users(id),
+			emoji TEXT NOT NULL,
+			username TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL,
+			PRIMARY KEY (message_id, user_id, emoji)
+		)`,
 		`CREATE TABLE IF NOT EXISTS voice_states (
 			user_id TEXT NOT NULL,
 			channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
@@ -366,6 +374,18 @@ func (d *DB) GetChannelMedia(channelID, kind string, before string, limit int) (
 		}
 		msgs = append(msgs, m)
 	}
+	if len(msgs) > 0 {
+		ids := make([]string, len(msgs))
+		for i, m := range msgs {
+			ids[i] = m.ID
+		}
+		rmap, err := d.GetMessagesReactions(ids)
+		if err == nil {
+			for _, m := range msgs {
+				m.Reactions = rmap[m.ID]
+			}
+		}
+	}
 	return msgs, nil
 }
 
@@ -426,6 +446,19 @@ func (d *DB) GetMessages(channelID string, before string, limit int) ([]*model.M
 		}
 		msgs = append(msgs, m)
 	}
+	// attach reactions
+	if len(msgs) > 0 {
+		ids := make([]string, len(msgs))
+		for i, m := range msgs {
+			ids[i] = m.ID
+		}
+		rmap, err := d.GetMessagesReactions(ids)
+		if err == nil {
+			for _, m := range msgs {
+				m.Reactions = rmap[m.ID]
+			}
+		}
+	}
 	return msgs, nil
 }
 
@@ -452,6 +485,72 @@ func (d *DB) EditMessage(id, content string) error {
 func (d *DB) DeleteMessage(id string) error {
 	_, err := d.Exec(`DELETE FROM messages WHERE id = ?`, id)
 	return err
+}
+
+// reactions
+
+func (d *DB) AddReaction(messageID, userID, emoji, username string) error {
+	_, err := d.Exec(
+		`INSERT OR IGNORE INTO reactions (message_id, user_id, emoji, username, created_at) VALUES (?,?,?,?,?)`,
+		messageID, userID, emoji, username, time.Now().Unix(),
+	)
+	return err
+}
+
+func (d *DB) RemoveReaction(messageID, userID, emoji string) error {
+	_, err := d.Exec(`DELETE FROM reactions WHERE message_id = ? AND user_id = ? AND emoji = ?`, messageID, userID, emoji)
+	return err
+}
+
+func (d *DB) GetMessageReactions(messageID string) ([]model.Reaction, error) {
+	rows, err := d.Query(`SELECT message_id, user_id, emoji, username, created_at FROM reactions WHERE message_id = ?`, messageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.Reaction
+	for rows.Next() {
+		var r model.Reaction
+		var createdAt int64
+		if err := rows.Scan(&r.MessageID, &r.UserID, &r.Emoji, &r.Username, &createdAt); err != nil {
+			return nil, err
+		}
+		r.CreatedAt = time.Unix(createdAt, 0).UTC()
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+func (d *DB) GetMessagesReactions(messageIDs []string) (map[string][]model.Reaction, error) {
+	if len(messageIDs) == 0 {
+		return nil, nil
+	}
+	query := `SELECT message_id, user_id, emoji, username, created_at FROM reactions WHERE message_id IN (`
+	args := make([]interface{}, len(messageIDs))
+	for i, id := range messageIDs {
+		if i > 0 {
+			query += ","
+		}
+		query += "?"
+		args[i] = id
+	}
+	query += `) ORDER BY created_at`
+	rows, err := d.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string][]model.Reaction)
+	for rows.Next() {
+		var r model.Reaction
+		var createdAt int64
+		if err := rows.Scan(&r.MessageID, &r.UserID, &r.Emoji, &r.Username, &createdAt); err != nil {
+			return nil, err
+		}
+		r.CreatedAt = time.Unix(createdAt, 0).UTC()
+		result[r.MessageID] = append(result[r.MessageID], r)
+	}
+	return result, nil
 }
 
 func (d *DB) UpdateUserDisplayName(userID, displayName string) error {

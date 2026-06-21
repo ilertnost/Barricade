@@ -8,6 +8,7 @@ import 'services/api_service.dart';
 import 'services/ws_service.dart';
 import 'services/theme_controller.dart';
 import 'services/locale_controller.dart';
+import 'services/quick_reaction_controller.dart';
 import 'services/audio_player_service.dart';
 import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
@@ -34,6 +35,7 @@ class BarricadeApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AppState()),
         ChangeNotifierProvider(create: (_) => ThemeController()..load()),
         ChangeNotifierProvider(create: (_) => LocaleController()..load()),
+        ChangeNotifierProvider(create: (_) => QuickReactionController()..load()),
         ChangeNotifierProvider(create: (_) => AudioPlayerService()),
         Provider(create: (_) => WsService()),
       ],

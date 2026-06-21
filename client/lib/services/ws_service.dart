@@ -75,6 +75,14 @@ class WsService {
     send('typing', {'channel_id': channelId});
   }
 
+  void addReaction(String messageId, String emoji) {
+    send('reaction_add', {'message_id': messageId, 'emoji': emoji});
+  }
+
+  void removeReaction(String messageId, String emoji) {
+    send('reaction_remove', {'message_id': messageId, 'emoji': emoji});
+  }
+
   void updateVoiceState(String channelId, {bool muted = false, bool deafened = false}) {
     send('voice_state_update', {
       'channel_id': channelId,
