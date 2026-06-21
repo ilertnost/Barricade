@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -318,7 +319,11 @@ class CallService extends ChangeNotifier {
     _voiceChannelId = channelId;
     _inVoiceRoom = true;
     if (_localStream == null) {
-      await initLocalMedia(video: false);
+      try {
+        await initLocalMedia(video: false);
+      } catch (e) {
+        debugPrint('joinVoiceRoom initLocalMedia error: $e');
+      }
     }
     await _setSpeakerphone(true);
     _ws.voiceRoomJoin(channelId);
@@ -358,7 +363,9 @@ class CallService extends ChangeNotifier {
     _voiceParticipantCtrl.add(Set.from(_voiceParticipants));
     notifyListeners();
     for (final peerId in participants) {
-      _connectVoicePeer(peerId);
+      _connectVoicePeer(peerId).catchError((e) {
+        debugPrint('_connectVoicePeer error for $peerId: $e');
+      });
     }
   }
 
@@ -391,6 +398,8 @@ class CallService extends ChangeNotifier {
 
   Future<void> _ensureVoiceRenderer(String peerId, MediaStream stream) async {
     if (_voiceRenderers.containsKey(peerId)) return;
+    // On Linux audio plays natively without RTCVideoRenderer.
+    if (!Platform.isAndroid) return;
     final r = RTCVideoRenderer();
     _voiceRenderers[peerId] = r;
     await r.initialize();
@@ -455,26 +464,34 @@ class CallService extends ChangeNotifier {
       case 'offer':
         // If in voice room mode, accept the offer from another participant.
         if (_inVoiceRoom && _voiceChannelId == channelId) {
-          final sdpMap = jsonDecode(payload['data'] as String) as Map<String, dynamic>;
-          final sdp = RTCSessionDescription(sdpMap['sdp'] as String, sdpMap['type'] as String);
-          if (_localStream == null) {
-            await initLocalMedia(video: false);
-          }
-          final pc = await _createPeerConnection(
-            fromId,
-            _voiceChannelId!,
-            onRemoteStream: (stream) => _ensureVoiceRenderer(fromId, stream),
-          );
-          _voiceConnections[fromId] = pc;
-          await pc.setRemoteDescription(sdp);
-          if (_localStream != null) {
-            for (final track in _localStream!.getTracks()) {
-              pc.addTrack(track, _localStream!);
+          try {
+            final sdpMap = jsonDecode(payload['data'] as String) as Map<String, dynamic>;
+            final sdp = RTCSessionDescription(sdpMap['sdp'] as String, sdpMap['type'] as String);
+            if (_localStream == null) {
+              try {
+                await initLocalMedia(video: false);
+              } catch (e) {
+                debugPrint('voice room offer initLocalMedia error: $e');
+              }
             }
+            final pc = await _createPeerConnection(
+              fromId,
+              _voiceChannelId!,
+              onRemoteStream: (stream) => _ensureVoiceRenderer(fromId, stream),
+            );
+            _voiceConnections[fromId] = pc;
+            await pc.setRemoteDescription(sdp);
+            if (_localStream != null) {
+              for (final track in _localStream!.getTracks()) {
+                pc.addTrack(track, _localStream!);
+              }
+            }
+            final answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            _ws.sendWebRTC(_voiceChannelId!, 'answer', jsonEncode(answer.toMap()), fromId);
+          } catch (e) {
+            debugPrint('voice room offer handling error: $e');
           }
-          final answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          _ws.sendWebRTC(_voiceChannelId!, 'answer', jsonEncode(answer.toMap()), fromId);
           return;
         }
         // If already ringing from FCM prepareIncoming for the same caller,
@@ -654,13 +671,24 @@ class CallService extends ChangeNotifier {
   }
 
   Future<void> _cleanupPeer(String userId) async {
-    await _connections[userId]?.close();
-    _connections.remove(userId);
-    _remoteStreams.remove(userId);
-    if (_connections.isEmpty) {
-      _resetAll();
-    } else {
+    if (_connections.containsKey(userId)) {
+      await _connections[userId]?.close();
+      _connections.remove(userId);
+      _remoteStreams.remove(userId);
+      if (_connections.isEmpty) {
+        _resetAll();
+      }
       _updateParticipants();
+    } else if (_voiceConnections.containsKey(userId)) {
+      await _voiceConnections[userId]?.close();
+      _voiceConnections.remove(userId);
+      if (_voiceRenderers.containsKey(userId)) {
+        _voiceRenderers[userId]!.dispose();
+        _voiceRenderers.remove(userId);
+      }
+      _voiceParticipants.remove(userId);
+      _voiceParticipantCtrl.add(Set.from(_voiceParticipants));
+      notifyListeners();
     }
   }
 
