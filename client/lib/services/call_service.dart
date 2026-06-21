@@ -690,9 +690,9 @@ class CallService extends ChangeNotifier {
         _voiceRenderers[userId]!.dispose();
         _voiceRenderers.remove(userId);
       }
-      _voiceParticipants.remove(userId);
-      _voiceParticipantCtrl.add(Set.from(_voiceParticipants));
-      notifyListeners();
+      // Do NOT remove from _voiceParticipants here — that's handled by
+      // _handleVoiceRoomUserLeft when the user explicitly leaves the room.
+      // Removing on ICE disconnect makes participants flicker out of the UI.
     }
   }
 
