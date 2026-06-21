@@ -307,6 +307,75 @@ class ApiService {
     return FileInfo.fromJson(jsonDecode(res.body));
   }
 
+  static Future<void> blockUser(String userId) async {
+    await http.post(
+      Uri.parse('${Config.serverUrl}/api/blacklist/$userId'),
+      headers: await headers(),
+    );
+  }
+
+  static Future<void> unblockUser(String userId) async {
+    await http.delete(
+      Uri.parse('${Config.serverUrl}/api/blacklist/$userId'),
+      headers: await headers(),
+    );
+  }
+
+  static Future<List<User>> getBlacklist() async {
+    final res = await http.get(
+      Uri.parse('${Config.serverUrl}/api/blacklist'),
+      headers: await headers(),
+    );
+    final list = jsonDecode(res.body) as List;
+    return list.map((e) => User.fromJson(e)).toList();
+  }
+
+  static Future<bool> isBlockedBy(String userId) async {
+    final res = await http.get(
+      Uri.parse('${Config.serverUrl}/api/blacklist/$userId/blocked-by'),
+      headers: await headers(),
+    );
+    if (res.statusCode != 200) return false;
+    final data = jsonDecode(res.body);
+    return data['blocked'] == true;
+  }
+
+  static Future<List<Map<String, dynamic>>> getContacts() async {
+    final res = await http.get(
+      Uri.parse('${Config.serverUrl}/api/contacts'),
+      headers: await headers(),
+    );
+    if (res.statusCode != 200) return [];
+    return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
+  }
+
+  static Future<void> addContact(String userId, {String? displayName}) async {
+    final body = <String, dynamic>{};
+    if (displayName != null) body['display_name'] = displayName;
+    await http.post(
+      Uri.parse('${Config.serverUrl}/api/contacts/$userId'),
+      headers: await headers(),
+      body: jsonEncode(body),
+    );
+  }
+
+  static Future<void> removeContact(String userId) async {
+    await http.delete(
+      Uri.parse('${Config.serverUrl}/api/contacts/$userId'),
+      headers: await headers(),
+    );
+  }
+
+  static Future<bool> isContact(String userId) async {
+    final res = await http.get(
+      Uri.parse('${Config.serverUrl}/api/contacts/$userId/check'),
+      headers: await headers(),
+    );
+    if (res.statusCode != 200) return false;
+    final data = jsonDecode(res.body);
+    return data['contact'] == true;
+  }
+
   static Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body) async {
     final res = await http.post(
       Uri.parse('${Config.serverUrl}$path'),

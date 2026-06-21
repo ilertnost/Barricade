@@ -18,6 +18,7 @@ class WsService {
   bool get isConnected => _channel != null;
 
   void connect() {
+    if (_channel != null) return;
     final token = ApiService.token;
     if (token == null) return;
 
@@ -107,6 +108,14 @@ class WsService {
       'data': data,
       'target_id': targetId,
     });
+  }
+
+  void voiceRoomJoin(String channelId) {
+    send('voice_room_join', {'channel_id': channelId});
+  }
+
+  void voiceRoomLeave(String channelId) {
+    send('voice_room_leave', {'channel_id': channelId});
   }
 
   void sendReadReceipt(String channelId) {

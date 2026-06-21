@@ -7,6 +7,8 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -40,13 +42,14 @@ class CallForegroundService : Service() {
             context.startService(intent)
         }
 
-        fun showIncomingCallNotification(context: Context, callerName: String, callerId: String) {
+        fun showIncomingCallNotification(context: Context, callerName: String, callerId: String, channelId: String = "") {
             createStaticChannel(context)
             val fullScreenIntent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra("show_incoming_call", true)
                 putExtra("caller_name", callerName)
                 putExtra("caller_id", callerId)
+                putExtra("channel_id", channelId)
             }
             val fullScreenPendingIntent = PendingIntent.getActivity(
                 context, 0,
@@ -75,12 +78,17 @@ class CallForegroundService : Service() {
 
         private fun createStaticChannel(context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
                 val channel = NotificationChannel(
                     CHANNEL_ID,
                     "\u0417\u0432\u043E\u043D\u043A\u0438",
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
                     description = "\u0423\u0432\u0435\u0434\u043E\u043C\u043B\u0435\u043D\u0438\u044F \u043E \u0437\u0432\u043E\u043D\u043A\u0430\u0445"
+                    setSound(ringtoneUri, AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build())
                     setShowBadge(false)
                     enableVibration(true)
                     vibrationPattern = longArrayOf(0, 500, 200, 500, 200, 500)
@@ -111,7 +119,7 @@ class CallForegroundService : Service() {
                 stopSelf()
             }
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -123,12 +131,17 @@ class CallForegroundService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "\u0417\u0432\u043E\u043D\u043A\u0438",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "\u0423\u0432\u0435\u0434\u043E\u043C\u043B\u0435\u043D\u0438\u044F \u043E \u0437\u0432\u043E\u043D\u043A\u0430\u0445"
+                setSound(ringtoneUri, AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build())
                 setShowBadge(false)
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0, 500, 200, 500, 200, 500)

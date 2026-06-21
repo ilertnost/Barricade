@@ -6,6 +6,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'api_service.dart';
 import 'ws_service.dart';
 import 'platform_call_service.dart';
+import 'mute_service.dart';
 
 class IncomingCallInfo {
   final String fromId;
@@ -68,11 +69,17 @@ class CallService extends ChangeNotifier {
     _ringPlayer.setVolume(1.0);
   }
 
+  bool _isMuted(String? channelId) {
+    if (channelId == null) return false;
+    return MuteService.isMuted(channelId);
+  }
+
   List<CallLogEntry> get callLog => List.unmodifiable(_callLog);
 
   CallState _state = CallState.idle;
   String? _channelId;
   bool _muted = false;
+  bool _deafened = false;
   bool _videoEnabled = false;
   bool _isDm = false;
 
@@ -94,6 +101,7 @@ class CallService extends ChangeNotifier {
   String? get callPeerId => _callPeerId;
   String get callPeerName => _callPeerName;
   bool get muted => _muted;
+  bool get deafened => _deafened;
   bool get videoEnabled => _videoEnabled;
   bool get inCall => _state == CallState.connected || _state == CallState.ringing;
   bool get isDm => _isDm;
@@ -101,9 +109,48 @@ class CallService extends ChangeNotifier {
   IncomingCallInfo? _incomingCall;
   IncomingCallInfo? get incomingCall => _incomingCall;
 
+  bool _inVoiceRoom = false;
+  String? _voiceChannelId;
+  final Set<String> _voiceParticipants = {};
+  final Map<String, RTCPeerConnection> _voiceConnections = {};
+  final Map<String, RTCVideoRenderer> _voiceRenderers = {};
+  final _voiceParticipantCtrl = StreamController<Set<String>>.broadcast();
+  Stream<Set<String>> get voiceParticipantStream => _voiceParticipantCtrl.stream;
+  Set<String> get voiceParticipants => Set.unmodifiable(_voiceParticipants);
+  bool get inVoiceRoom => _inVoiceRoom;
+  String? get voiceChannelId => _voiceChannelId;
+
   RTCSessionDescription? _pendingOfferSdp;
   String? _pendingCallerId;
   String _pendingCallerDisplayName = '';
+  Timer? _callTimeout;
+
+  void _startCallTimeout() {
+    _callTimeout?.cancel();
+    _callTimeout = Timer(const Duration(seconds: 20), () {
+      if (!_callIsIncoming && _state == CallState.ringing) {
+        // Caller: unanswered for 20s — auto-cancel
+        _state = CallState.idle;
+        _stopRings();
+        PlatformCallService.cancelIncomingNotification();
+        PlatformCallService.stopCallService();
+        if (_channelId != null && _callPeerId != null) {
+          _ws.sendWebRTC(_channelId!, 'end_call', {}, _callPeerId!);
+        }
+        _logCall(_callPeerId ?? '', _callPeerName, false, false);
+        _cleanupConnections();
+        notifyListeners();
+      } else if (_callIsIncoming && _state == CallState.ringing) {
+        // Callee: didn't answer for 20s — auto-decline
+        declineIncomingCall();
+      }
+    });
+  }
+
+  void _cancelTimeout() {
+    _callTimeout?.cancel();
+    _callTimeout = null;
+  }
 
   static const _iceConfig = {
     'iceServers': [
@@ -113,8 +160,15 @@ class CallService extends ChangeNotifier {
   };
 
   void onWsMessage(Map<String, dynamic> msg) {
-    if (msg['type'] == 'webrtc') {
-      handleIncomingSignal(msg['payload'] as Map<String, dynamic>);
+    switch (msg['type'] as String?) {
+      case 'webrtc':
+        handleIncomingSignal(msg['payload'] as Map<String, dynamic>);
+      case 'voice_room_participants':
+        _handleVoiceRoomParticipants(msg['payload'] as Map<String, dynamic>);
+      case 'voice_room_user_joined':
+        _handleVoiceRoomUserJoined(msg['payload'] as Map<String, dynamic>);
+      case 'voice_room_user_left':
+        _handleVoiceRoomUserLeft(msg['payload'] as Map<String, dynamic>);
     }
   }
 
@@ -122,11 +176,28 @@ class CallService extends ChangeNotifier {
     _videoEnabled = video;
     final constraints = <String, dynamic>{
       'audio': true,
-      'video': video
-          ? {'facingMode': 'user', 'width': {'ideal': 1280}, 'height': {'ideal': 720}}
-          : false,
+      'video': {
+        'facingMode': 'user',
+        'width': {'ideal': 1280},
+        'height': {'ideal': 720},
+        'optional': [{'googNoiseSuppression': true}],
+      },
     };
-    _localStream = await navigator.mediaDevices.getUserMedia(constraints);
+    try {
+      _localStream = await navigator.mediaDevices.getUserMedia(constraints);
+      if (!video) {
+        for (final t in _localStream!.getVideoTracks()) {
+          t.enabled = false;
+        }
+      }
+    } catch (_) {
+      // Fall back to audio only if camera fails
+      final audioConstraints = <String, dynamic>{
+        'audio': true,
+        'video': false,
+      };
+      _localStream = await navigator.mediaDevices.getUserMedia(audioConstraints);
+    }
   }
 
   Future<void> _setAudioRoute() async {
@@ -145,6 +216,7 @@ class CallService extends ChangeNotifier {
     _playRingback();
     PlatformCallService.startCallService();
     notifyListeners();
+    _startCallTimeout();
 
     await initLocalMedia(video: video);
     await _setAudioRoute();
@@ -155,6 +227,7 @@ class CallService extends ChangeNotifier {
   }
 
   Future<void> answerIncomingCall() async {
+    _cancelTimeout();
     _stopRings();
     PlatformCallService.cancelIncomingNotification();
     final callerId = _pendingCallerId;
@@ -192,6 +265,7 @@ class CallService extends ChangeNotifier {
   }
 
   Future<void> declineIncomingCall() async {
+    _cancelTimeout();
     _stopRings();
     PlatformCallService.cancelIncomingNotification();
     final callerId = _pendingCallerId;
@@ -229,10 +303,122 @@ class CallService extends ChangeNotifier {
     _ws.sendWebRTC(channelId, 'offer', jsonEncode(sdp.toMap()), peerId);
   }
 
+  // ── Voice room methods ──
+
+  Future<void> joinVoiceRoom(String channelId) async {
+    if (_inVoiceRoom) return;
+    _voiceChannelId = channelId;
+    _inVoiceRoom = true;
+    if (_localStream == null) {
+      await initLocalMedia(video: false);
+    }
+    await Helper.setSpeakerphoneOn(true);
+    _ws.voiceRoomJoin(channelId);
+    notifyListeners();
+  }
+
+  Future<void> leaveVoiceRoom() async {
+    if (!_inVoiceRoom) return;
+    if (_voiceChannelId != null) {
+      _ws.voiceRoomLeave(_voiceChannelId!);
+    }
+    _cleanupVoiceRoom();
+    notifyListeners();
+  }
+
+  void _cleanupVoiceRoom() {
+    for (final e in _voiceConnections.entries) {
+      e.value.close();
+    }
+    _voiceConnections.clear();
+    for (final e in _voiceRenderers.entries) {
+      e.value.dispose();
+    }
+    _voiceRenderers.clear();
+    _voiceParticipants.clear();
+    _voiceChannelId = null;
+    _inVoiceRoom = false;
+    if (!inCall) {
+      _localStream?.dispose();
+      _localStream = null;
+    }
+  }
+
+  void _handleVoiceRoomParticipants(Map<String, dynamic> payload) {
+    final participants = List<String>.from(payload['participants'] as List? ?? []);
+    _voiceParticipants.addAll(participants);
+    _voiceParticipantCtrl.add(Set.from(_voiceParticipants));
+    notifyListeners();
+    for (final peerId in participants) {
+      _connectVoicePeer(peerId);
+    }
+  }
+
+  void _handleVoiceRoomUserJoined(Map<String, dynamic> payload) {
+    final userId = payload['user_id'] as String?;
+    if (userId == null || !_inVoiceRoom) return;
+    _voiceParticipants.add(userId);
+    _voiceParticipantCtrl.add(Set.from(_voiceParticipants));
+    notifyListeners();
+    // Don't create an offer here — the joiner creates offers to all
+    // existing participants via _handleVoiceRoomParticipants.
+    // We wait for the incoming offer from the new joiner.
+  }
+
+  void _handleVoiceRoomUserLeft(Map<String, dynamic> payload) {
+    final userId = payload['user_id'] as String?;
+    if (userId == null) return;
+    _voiceParticipants.remove(userId);
+    _voiceParticipantCtrl.add(Set.from(_voiceParticipants));
+    if (_voiceConnections.containsKey(userId)) {
+      _voiceConnections[userId]!.close();
+      _voiceConnections.remove(userId);
+    }
+    if (_voiceRenderers.containsKey(userId)) {
+      _voiceRenderers[userId]!.dispose();
+      _voiceRenderers.remove(userId);
+    }
+    notifyListeners();
+  }
+
+  Future<void> _ensureVoiceRenderer(String peerId, MediaStream stream) async {
+    if (_voiceRenderers.containsKey(peerId)) return;
+    final r = RTCVideoRenderer();
+    _voiceRenderers[peerId] = r;
+    await r.initialize();
+    r.srcObject = stream;
+  }
+
+  Future<void> _connectVoicePeer(String peerId) async {
+    if (_voiceConnections.containsKey(peerId)) return;
+    if (_voiceChannelId == null) return;
+    if (_localStream == null) {
+      await initLocalMedia(video: false);
+    }
+
+    final pc = await _createPeerConnection(
+      peerId,
+      _voiceChannelId!,
+      onRemoteStream: (stream) => _ensureVoiceRenderer(peerId, stream),
+    );
+    _voiceConnections[peerId] = pc;
+
+    if (_localStream != null) {
+      for (final track in _localStream!.getTracks()) {
+        pc.addTrack(track, _localStream!);
+      }
+    }
+
+    final sdp = await pc.createOffer();
+    await pc.setLocalDescription(sdp);
+    _ws.sendWebRTC(_voiceChannelId!, 'offer', jsonEncode(sdp.toMap()), peerId);
+  }
+
   void prepareIncoming(String fromId, String channelId, String callerName) {
     // Called from FCM push before the actual offer arrives via WebSocket.
     // Sets up minimal state so the UI can show the incoming call immediately.
     if (_state != CallState.idle) return;
+    if (_isMuted(channelId)) return;
     _channelId = channelId;
     _pendingCallerId = fromId;
     _pendingCallerDisplayName = callerName;
@@ -247,6 +433,7 @@ class CallService extends ChangeNotifier {
       fromDisplayName: callerName,
     );
     _playIncomingRing();
+    _startCallTimeout();
     notifyListeners();
   }
 
@@ -258,7 +445,43 @@ class CallService extends ChangeNotifier {
 
     switch (type) {
       case 'offer':
+        // If in voice room mode, accept the offer from another participant.
+        if (_inVoiceRoom && _voiceChannelId == channelId) {
+          final sdpMap = jsonDecode(payload['data'] as String) as Map<String, dynamic>;
+          final sdp = RTCSessionDescription(sdpMap['sdp'] as String, sdpMap['type'] as String);
+          if (_localStream == null) {
+            await initLocalMedia(video: false);
+          }
+          final pc = await _createPeerConnection(
+            fromId,
+            _voiceChannelId!,
+            onRemoteStream: (stream) => _ensureVoiceRenderer(fromId, stream),
+          );
+          _voiceConnections[fromId] = pc;
+          await pc.setRemoteDescription(sdp);
+          if (_localStream != null) {
+            for (final track in _localStream!.getTracks()) {
+              pc.addTrack(track, _localStream!);
+            }
+          }
+          final answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          _ws.sendWebRTC(_voiceChannelId!, 'answer', jsonEncode(answer.toMap()), fromId);
+          return;
+        }
+        // If already ringing from FCM prepareIncoming for the same caller,
+        // just update the SDP and continue.
+        if (_state == CallState.ringing && _pendingCallerId == fromId) {
+          final sdpMap = jsonDecode(payload['data'] as String) as Map<String, dynamic>;
+          _pendingOfferSdp = RTCSessionDescription(sdpMap['sdp'] as String, sdpMap['type'] as String);
+          return;
+        }
         if (_state != CallState.idle) {
+          if (channelId != null) _ws.sendWebRTC(channelId, 'end_call', {}, fromId);
+          return;
+        }
+
+        if (_isMuted(channelId)) {
           if (channelId != null) _ws.sendWebRTC(channelId, 'end_call', {}, fromId);
           return;
         }
@@ -287,13 +510,15 @@ class CallService extends ChangeNotifier {
         _callPeerName = _pendingCallerDisplayName;
         _callIsIncoming = true;
         _playIncomingRing();
-        PlatformCallService.showIncomingCall(_pendingCallerDisplayName, fromId);
+        PlatformCallService.showIncomingCall(_pendingCallerDisplayName, fromId, channelId: channelId ?? '');
+        _startCallTimeout();
         notifyListeners();
 
       case 'answer':
         final sdpMap = jsonDecode(payload['data'] as String) as Map<String, dynamic>;
         final sdp = RTCSessionDescription(sdpMap['sdp'] as String, sdpMap['type'] as String);
-        await _connections[fromId]?.setRemoteDescription(sdp);
+        final pc = _connections[fromId] ?? _voiceConnections[fromId];
+        await pc?.setRemoteDescription(sdp);
         if (_state == CallState.ringing) {
           _state = CallState.connected;
           _callStartTimestamp = DateTime.now().millisecondsSinceEpoch;
@@ -308,7 +533,8 @@ class CallService extends ChangeNotifier {
           cand['sdpMid'] as String? ?? '',
           cand['sdpMLineIndex'] as int? ?? 0,
         );
-        await _connections[fromId]?.addCandidate(candidate);
+        final pc = _connections[fromId] ?? _voiceConnections[fromId];
+        await pc?.addCandidate(candidate);
 
       case 'end_call':
         _playDisconnect();
@@ -317,6 +543,7 @@ class CallService extends ChangeNotifier {
   }
 
   void _resetAll() {
+    _cancelTimeout();
     PlatformCallService.cancelIncomingNotification();
     PlatformCallService.stopCallService();
     if (_callPeerId != null && _callStartTimestamp > 0) {
@@ -347,7 +574,24 @@ class CallService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<RTCPeerConnection> _createPeerConnection(String peerId, String channelId) async {
+  void _cleanupConnections() {
+    for (final e in _connections.entries) {
+      e.value.close();
+    }
+    _connections.clear();
+    _remoteStreams.clear();
+    _volumes.clear();
+    _localStream?.dispose();
+    _localStream = null;
+    _participants.clear();
+    _participantsCtrl.add([]);
+  }
+
+  Future<RTCPeerConnection> _createPeerConnection(
+    String peerId,
+    String channelId, {
+    void Function(MediaStream stream)? onRemoteStream,
+  }) async {
     final pc = await createPeerConnection(_iceConfig);
 
     pc.onIceCandidate = (candidate) {
@@ -360,6 +604,9 @@ class CallService extends ChangeNotifier {
 
     pc.onTrack = (event) {
       _remoteStreams[peerId] = event.streams[0];
+      if (onRemoteStream != null) {
+        onRemoteStream(event.streams[0]);
+      }
       _updateParticipants();
     };
 
@@ -427,7 +674,7 @@ class CallService extends ChangeNotifier {
 
   void _playIncomingRing() {
     Helper.setSpeakerphoneOn(true);
-    _ringPlayer.play(AssetSource('sounds/incoming.wav'));
+    PlatformCallService.playRingtone();
   }
 
   void _playDisconnect() {
@@ -436,6 +683,7 @@ class CallService extends ChangeNotifier {
 
   void _stopRings() {
     _ringPlayer.stop();
+    PlatformCallService.stopRingtone();
   }
 
   void _logCall(String peerId, String peerName, bool isIncoming, bool answered) {
@@ -457,6 +705,19 @@ class CallService extends ChangeNotifier {
   Future<void> toggleMute() async {
     _muted = !_muted;
     _localStream?.getAudioTracks().forEach((t) => t.enabled = !_muted);
+    _updateParticipants();
+  }
+
+  Future<void> toggleDeafen() async {
+    _deafened = !_deafened;
+    if (_deafened) {
+      _muted = true;
+      _localStream?.getAudioTracks().forEach((t) => t.enabled = false);
+      await Helper.setSpeakerphoneOn(false);
+    } else {
+      _muted = false;
+      _localStream?.getAudioTracks().forEach((t) => t.enabled = true);
+    }
     _updateParticipants();
   }
 
@@ -482,6 +743,8 @@ class CallService extends ChangeNotifier {
     _ringPlayer.dispose();
     _tonePlayer.dispose();
     _participantsCtrl.close();
+    _voiceParticipantCtrl.close();
+    if (_inVoiceRoom) leaveVoiceRoom();
     endCall();
     super.dispose();
   }

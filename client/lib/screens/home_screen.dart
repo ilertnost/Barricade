@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../l10n/strings.dart';
@@ -11,6 +13,7 @@ import 'chat_screen.dart';
 import 'call_screen.dart';
 import 'settings_screen.dart';
 import 'incoming_call_screen.dart';
+import '../widgets/voice_room_panel.dart';
 
 /// App shell: bottom NavigationBar with Чаты / Контакты / Настройки.
 class HomeScreen extends StatefulWidget {
@@ -36,6 +39,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void didChangeDependencies() {
     super.didChangeDependencies();
     context.read<CallService>().addListener(_onCallStateChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final call = context.read<CallService>();
+      if (call.state == CallState.ringing && call.incomingCall != null) {
+        _showCallBanner();
+      }
+    });
   }
 
   @override
@@ -69,6 +79,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _onCallStateChanged() {
+    if (!mounted) return;
     final call = context.read<CallService>();
     if (call.state == CallState.ringing && call.incomingCall != null) {
       _showCallBanner();
@@ -103,13 +114,62 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     context.watch<LocaleController>();
     return Scaffold(
-      body: IndexedStack(
-        index: _index,
+      body: Column(
         children: [
-          _ChatsTab(me: _me, onProfileTap: _goToSettings),
-          _ContactsTab(),
-          _CallLogTab(),
-          SettingsScreen(),
+          Expanded(
+            child: IndexedStack(
+              index: _index,
+              children: [
+                _ChatsTab(me: _me, onProfileTap: _goToSettings),
+                _ContactsTab(),
+                _CallLogTab(),
+                SettingsScreen(),
+              ],
+            ),
+          ),
+          // Voice room bar — visible from any tab when connected
+          Consumer<CallService>(
+            builder: (_, call, __) {
+              if (!call.inVoiceRoom || call.voiceChannelId == null) {
+                return const SizedBox.shrink();
+              }
+              final cs = Theme.of(context).colorScheme;
+              return GestureDetector(
+                onTap: () => showVoiceRoomPanel(context, channelName: 'Голосовой канал'),
+                child: Container(
+                  width: double.infinity,
+                  color: Colors.green.withValues(alpha: 0.15),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Row(
+                    children: [
+                      Icon(Icons.headset, size: 18, color: Colors.green),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          call.voiceParticipants.isEmpty
+                              ? 'В голосовом канале'
+                              : 'В голосовом канале (${call.voiceParticipants.length})',
+                          style: TextStyle(fontSize: 13, color: Colors.green.shade700),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => call.leaveVoiceRoom(),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.red,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: const Text('Выйти', style: TextStyle(fontSize: 12)),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(Icons.keyboard_arrow_up, size: 18, color: cs.outline),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -402,7 +462,7 @@ class _ContactsTab extends StatefulWidget {
 }
 
 class _ContactsTabState extends State<_ContactsTab> {
-  List<User> _users = [];
+  List<Map<String, dynamic>> _contacts = [];
   bool _loading = true;
 
   @override
@@ -413,27 +473,23 @@ class _ContactsTabState extends State<_ContactsTab> {
 
   Future<void> _load() async {
     try {
-      final me = await ApiService.getMe();
-      final all = await ApiService.getUsers();
-      if (mounted) setState(() { _users = all.where((u) => u.id != me.id).toList(); _loading = false; });
+      final contacts = await ApiService.getContacts();
+      if (mounted) setState(() { _contacts = contacts; _loading = false; });
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  Future<Channel> _resolveDmChannel(User target) async {
+  Future<Channel> _resolveDmChannel(String peerId, String displayName) async {
     final channels = await ApiService.getChannels();
-    final existing = await ApiService.findExistingDm(channels, target.id);
+    final existing = await ApiService.findExistingDm(channels, peerId);
     if (existing != null) return existing;
-    return await ApiService.createChannel(
-      target.displayName.isNotEmpty ? target.displayName : target.username, 'dm', [target.id]);
+    return await ApiService.createChannel(displayName, 'dm', [peerId]);
   }
 
-  Future<void> _openDm(User target) async {
+  Future<void> _openDm(String peerId, String displayName) async {
     try {
-      final me = await ApiService.getMe();
-      if (target.id == me.id) return;
-      final ch = await _resolveDmChannel(target);
+      final ch = await _resolveDmChannel(peerId, displayName);
       if (mounted) {
         Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(channel: ch)));
       }
@@ -444,13 +500,11 @@ class _ContactsTabState extends State<_ContactsTab> {
     }
   }
 
-  Future<void> _callUser(User target) async {
+  Future<void> _callUser(String peerId, String displayName) async {
     try {
-      final me = await ApiService.getMe();
-      if (target.id == me.id) return;
-      final ch = await _resolveDmChannel(target);
+      final ch = await _resolveDmChannel(peerId, displayName);
       if (mounted) {
-        Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelId: ch.id, peerIds: [target.id], video: false)));
+        Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelId: ch.id, peerIds: [peerId], video: false)));
       }
     } catch (e) {
       if (mounted) {
@@ -476,21 +530,26 @@ class _ContactsTabState extends State<_ContactsTab> {
       appBar: AppBar(title: Text(Strings.t('common.contacts'))),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _users.isEmpty
+          : _contacts.isEmpty
               ? _EmptyState(icon: Icons.people_outline, text: Strings.t('common.no_users'))
               : RefreshIndicator(
                   onRefresh: _load,
                   child: ListView.builder(
                     padding: const EdgeInsets.symmetric(vertical: 6),
-                    itemCount: _users.length,
+                    itemCount: _contacts.length,
                     itemBuilder: (_, i) {
-                      final u = _users[i];
+                      final c = _contacts[i];
+                      final id = c['contact_id'] as String;
+                      final name = c['display_name'] as String? ?? '';
+                      final username = c['username'] as String? ?? '';
+                      final avatarId = c['avatar_id'] as String?;
+                      final online = c['online'] as bool? ?? false;
                       return ListTile(
                         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
                         leading: Stack(
                           children: [
-                            UserAvatar(name: u.displayName, avatarId: u.avatarId, radius: 24),
-                            if (u.online)
+                            UserAvatar(name: name, avatarId: avatarId, radius: 24),
+                            if (online)
                               Positioned(
                                 right: 0, bottom: 0,
                                 child: Container(
@@ -504,30 +563,23 @@ class _ContactsTabState extends State<_ContactsTab> {
                               ),
                           ],
                         ),
-                        title: Text(u.displayName, style: const TextStyle(fontWeight: FontWeight.w600)),
-                        subtitle: Text(
-                          u.online
-                              ? Strings.t('user.online_now')
-                              : u.lastSeen != null
-                                  ? _formatLastSeen(u.lastSeen!)
-                                  : u.atUsername,
-                        ),
+                        title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             IconButton(
                               icon: const Icon(Icons.call_outlined, size: 18),
-                              onPressed: () => _callUser(u),
+                              onPressed: () => _callUser(id, name),
                               tooltip: 'Позвонить',
                             ),
                             IconButton(
                               icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                              onPressed: () => _openDm(u),
+                              onPressed: () => _openDm(id, name),
                               tooltip: 'Написать',
                             ),
                           ],
                         ),
-                        onTap: () => _openDm(u),
+                        onTap: () => _openDm(id, name),
                       );
                     },
                   ),
@@ -748,21 +800,41 @@ class _CreateChannelDialogState extends State<_CreateChannelDialog> {
   List<User> _searchResults = [];
   final List<String> _selectedIds = [];
   bool _searching = false;
+  Timer? _searchTimer;
 
-  Future<void> _search(String q) async {
+  @override
+  void dispose() {
+    _searchTimer?.cancel();
+    _nameCtrl.dispose();
+    _usernameCtrl.dispose();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _search(String q) {
+    _searchTimer?.cancel();
     if (q.isEmpty) {
       setState(() => _searchResults = []);
       return;
     }
-    setState(() => _searching = true);
-    try {
-      final users = await ApiService.getUsers(query: q);
-      if (mounted) setState(() => _searchResults = users);
-    } catch (_) {
-      if (mounted) setState(() => _searchResults = []);
-    } finally {
-      if (mounted) setState(() => _searching = false);
-    }
+    _searchTimer = Timer(const Duration(milliseconds: 300), () async {
+      if (!mounted) return;
+      setState(() => _searching = true);
+      debugPrint('[_CreateChannelDialog] searching for: $q');
+      try {
+        final users = await ApiService.getUsers(query: q);
+        debugPrint('[_CreateChannelDialog] found ${users.length} users for: $q');
+        if (mounted) {
+          setState(() => _searchResults = users);
+          debugPrint('[_CreateChannelDialog] searchResults set to ${users.length} items');
+        }
+      } catch (e) {
+        debugPrint('[_CreateChannelDialog] search error: $e');
+        if (mounted) setState(() => _searchResults = []);
+      } finally {
+        if (mounted) setState(() => _searching = false);
+      }
+    });
   }
 
   @override
@@ -798,6 +870,7 @@ class _CreateChannelDialogState extends State<_CreateChannelDialog> {
             ),
             const SizedBox(height: 10),
             DropdownButtonFormField(
+              isExpanded: true,
               initialValue: _visibility,
               decoration: InputDecoration(labelText: Strings.t('channel.visibility')),
               items: [
@@ -818,9 +891,7 @@ class _CreateChannelDialogState extends State<_CreateChannelDialog> {
               onChanged: _search,
             ),
             const SizedBox(height: 8),
-            if (_searching)
-              const Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator(strokeWidth: 2))
-            else if (_selectedIds.isNotEmpty)
+            if (_selectedIds.isNotEmpty)
               Wrap(
                 spacing: 6,
                 children: _selectedIds.map((id) {
@@ -831,25 +902,24 @@ class _CreateChannelDialogState extends State<_CreateChannelDialog> {
                   );
                 }).toList(),
               ),
-            if (_searchResults.isNotEmpty)
-              SizedBox(
-                height: (_searchResults.length * 56.0).clamp(0, 220),
-                child: ListView(
-                  children: _searchResults.map((u) => CheckboxListTile(
-                        dense: true,
-                        title: Text(u.displayName),
-                        subtitle: Text(u.atUsername, style: const TextStyle(fontSize: 12)),
-                        value: _selectedIds.contains(u.id),
-                        onChanged: (v) => setState(() {
-                          if (v == true) {
-                            _selectedIds.add(u.id);
-                          } else {
-                            _selectedIds.remove(u.id);
-                          }
-                        }),
-                      )).toList(),
-                ),
-              ),
+            if (_searching)
+              const SizedBox(height: 48, child: Center(child: CircularProgressIndicator(strokeWidth: 2)))
+            else if (_searchResults.isNotEmpty)
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: _searchResults.map((u) => CheckboxListTile(
+                  dense: true,
+                  title: Text(u.displayName),
+                  subtitle: Text(u.atUsername),
+                  value: _selectedIds.contains(u.id),
+                  onChanged: (v) => setState(() {
+                    if (v == true) _selectedIds.add(u.id);
+                    else _selectedIds.remove(u.id);
+                  }),
+                )).toList(),
+              )
+            else if (_searchCtrl.text.isNotEmpty)
+              const SizedBox(height: 48, child: Center(child: Text('Пользователи не найдены'))),
           ],
         ),
       ),
@@ -867,9 +937,10 @@ class _CreateChannelDialogState extends State<_CreateChannelDialog> {
                 visibility: _visibility,
               );
               if (context.mounted) {
+                final nav = Navigator.of(context, rootNavigator: true);
                 widget.onCreated(ch);
-                Navigator.pop(context);
-                Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(channel: ch)));
+                nav.pop();
+                nav.push(MaterialPageRoute(builder: (_) => ChatScreen(channel: ch)));
               }
             } catch (e) {
               if (context.mounted) {

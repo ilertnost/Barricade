@@ -111,11 +111,24 @@ func (d *DB) migrate() error {
 	// Optional recovery phrase (bcrypt hash) for self-service password reset.
 	d.Exec(`ALTER TABLE users ADD COLUMN recovery_hash TEXT NOT NULL DEFAULT ''`)
 	d.Exec(`ALTER TABLE users ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0`)
-	d.Exec(`CREATE TABLE IF NOT EXISTS fcm_tokens (
+	d.Exec(	`CREATE TABLE IF NOT EXISTS fcm_tokens (
 		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		token TEXT NOT NULL,
 		created_at INTEGER NOT NULL,
 		PRIMARY KEY (user_id)
+	)`)
+	d.Exec(`CREATE TABLE IF NOT EXISTS blacklist (
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		blocked_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		created_at INTEGER NOT NULL,
+		PRIMARY KEY (user_id, blocked_id)
+	)`)
+	d.Exec(`CREATE TABLE IF NOT EXISTS contacts (
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		contact_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		display_name TEXT NOT NULL DEFAULT '',
+		created_at INTEGER NOT NULL,
+		PRIMARY KEY (user_id, contact_id)
 	)`)
 	return nil
 }
@@ -690,6 +703,87 @@ func (d *DB) GetFCMToken(userID string) (string, error) {
 	var token string
 	err := d.QueryRow(`SELECT token FROM fcm_tokens WHERE user_id = ?`, userID).Scan(&token)
 	return token, err
+}
+
+func (d *DB) BlockUser(userID, blockedID string) error {
+	_, err := d.Exec(`INSERT OR IGNORE INTO blacklist (user_id, blocked_id, created_at) VALUES (?,?,?)`,
+		userID, blockedID, time.Now().Unix())
+	return err
+}
+
+func (d *DB) UnblockUser(userID, blockedID string) error {
+	_, err := d.Exec(`DELETE FROM blacklist WHERE user_id = ? AND blocked_id = ?`, userID, blockedID)
+	return err
+}
+
+func (d *DB) GetBlacklist(userID string) ([]string, error) {
+	rows, err := d.Query(`SELECT blocked_id FROM blacklist WHERE user_id = ? ORDER BY created_at DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func (d *DB) IsBlocked(userID, targetID string) (bool, error) {
+	var count int
+	err := d.QueryRow(`SELECT COUNT(*) FROM blacklist WHERE user_id = ? AND blocked_id = ?`, userID, targetID).Scan(&count)
+	return count > 0, err
+}
+
+func (d *DB) AddContact(userID, contactID, displayName string) error {
+	if displayName == "" {
+		u, err := d.GetUser(contactID)
+		if err != nil {
+			return err
+		}
+		displayName = u.DisplayName
+	}
+	_, err := d.Exec(`INSERT OR IGNORE INTO contacts (user_id, contact_id, display_name, created_at) VALUES (?,?,?,?)`,
+		userID, contactID, displayName, time.Now().Unix())
+	return err
+}
+
+func (d *DB) RemoveContact(userID, contactID string) error {
+	_, err := d.Exec(`DELETE FROM contacts WHERE user_id = ? AND contact_id = ?`, userID, contactID)
+	return err
+}
+
+func (d *DB) GetContacts(userID string) ([]*model.Contact, error) {
+	rows, err := d.Query(`SELECT contact_id, display_name, created_at FROM contacts WHERE user_id = ? ORDER BY display_name`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var contacts []*model.Contact
+	for rows.Next() {
+		c := &model.Contact{}
+		if err := rows.Scan(&c.ContactID, &c.DisplayName, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		contacts = append(contacts, c)
+	}
+	return contacts, nil
+}
+
+func (d *DB) UpdateContactName(userID, contactID, displayName string) error {
+	_, err := d.Exec(`UPDATE contacts SET display_name = ? WHERE user_id = ? AND contact_id = ?`,
+		displayName, userID, contactID)
+	return err
+}
+
+func (d *DB) IsContact(userID, contactID string) (bool, error) {
+	var count int
+	err := d.QueryRow(`SELECT COUNT(*) FROM contacts WHERE user_id = ? AND contact_id = ?`, userID, contactID).Scan(&count)
+	return count > 0, err
 }
 
 func boolToInt(b bool) int {

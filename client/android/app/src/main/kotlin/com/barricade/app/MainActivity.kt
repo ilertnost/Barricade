@@ -1,6 +1,9 @@
 package com.barricade.app
 
 import android.content.ContentValues
+import android.media.Ringtone
+import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
@@ -16,6 +19,7 @@ import android.os.Bundle
 class MainActivity : AudioServiceActivity() {
     private val downloadsChannel = "barricade/downloads"
     private val callChannel = "barricade/call"
+    private var ringtone: Ringtone? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -53,11 +57,38 @@ class MainActivity : AudioServiceActivity() {
                     "showIncomingCall" -> {
                         val name = call.argument<String>("callerName") ?: ""
                         val id = call.argument<String>("callerId") ?: ""
-                        CallForegroundService.showIncomingCallNotification(this, name, id)
+                        val chId = call.argument<String>("channelId") ?: ""
+                        CallForegroundService.showIncomingCallNotification(this, name, id, chId)
                         result.success(true)
                     }
                     "cancelIncomingNotification" -> {
                         CallForegroundService.cancelIncomingNotification(this)
+                        result.success(true)
+                    }
+                    "getLaunchData" -> {
+                        val intent = intent
+                        val showCall = intent.getBooleanExtra("show_incoming_call", false)
+                        result.success(mapOf(
+                            "show_incoming_call" to showCall,
+                            "caller_name" to (intent.getStringExtra("caller_name") ?: ""),
+                            "caller_id" to (intent.getStringExtra("caller_id") ?: ""),
+                            "channel_id" to (intent.getStringExtra("channel_id") ?: ""),
+                        ))
+                    }
+                    "playRingtone" -> {
+                        try {
+                            ringtone?.stop()
+                            val uri: Uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                            ringtone = RingtoneManager.getRingtone(this, uri)
+                            ringtone?.play()
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("RINGTONE", e.message ?: e.toString(), null)
+                        }
+                    }
+                    "stopRingtone" -> {
+                        ringtone?.stop()
+                        ringtone = null
                         result.success(true)
                     }
                     else -> result.notImplemented()

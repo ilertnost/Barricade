@@ -20,6 +20,7 @@ import 'incoming_call_screen.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/voice_recorder.dart';
 import '../widgets/video_circle.dart';
+import '../widgets/voice_room_panel.dart';
 
 class ChatScreen extends StatefulWidget {
   final Channel channel;
@@ -42,6 +43,7 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _peerLastSeen;
   String _peerName = '';
   String? _peerId;
+  bool _isContact = false;
 
   @override
   void initState() {
@@ -71,11 +73,13 @@ class _ChatScreenState extends State<ChatScreen> {
       if (peer != null) {
         _peerId = peer.id;
         final user = await ApiService.getUser(peer.id);
+        final contact = await ApiService.isContact(peer.id);
         if (mounted) {
           setState(() {
             _peerName = user.displayName.isNotEmpty ? user.displayName : user.username;
             _peerOnline = user.online;
             _peerLastSeen = user.lastSeen;
+            _isContact = contact;
           });
         }
       }
@@ -269,43 +273,88 @@ class _ChatScreenState extends State<ChatScreen> {
       builder: (ctx) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.only(top: 16, bottom: 24),
-          child: MediaAttachmentBar(
-            onPickPhoto: () {
-              Navigator.pop(ctx);
-              MediaUtils.pickFromGallery().then((result) {
-                if (result != null) _sendMedia(result);
-              });
-            },
-            onPickVideo: () {
-              Navigator.pop(ctx);
-              MediaUtils.pickVideoFromGallery().then((result) {
-                if (result != null) _sendMedia(result);
-              });
-            },
-            onCapturePhoto: () {
-              Navigator.pop(ctx);
-              MediaUtils.capturePhoto().then((result) {
-                if (result != null) _sendMedia(result);
-              });
-            },
-            onRecordVoice: () {
-              Navigator.pop(ctx);
-              _showVoiceRecorder();
-            },
-            onOpenVideoCircle: () {
-              Navigator.pop(ctx);
-              _showVideoCircle();
-            },
-            onPickFile: () {
-              Navigator.pop(ctx);
-              MediaUtils.pickAnyFile().then((result) {
-                if (result != null) _sendMedia(result);
-              });
-            },
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              MediaAttachmentBar(
+                onPickPhoto: () {
+                  Navigator.pop(ctx);
+                  MediaUtils.pickFromGallery().then((result) {
+                    if (result != null) _sendMedia(result);
+                  });
+                },
+                onPickVideo: () {
+                  Navigator.pop(ctx);
+                  MediaUtils.pickVideoFromGallery().then((result) {
+                    if (result != null) _sendMedia(result);
+                  });
+                },
+                onCapturePhoto: () {
+                  Navigator.pop(ctx);
+                  MediaUtils.capturePhoto().then((result) {
+                    if (result != null) _sendMedia(result);
+                  });
+                },
+                onRecordVoice: () {
+                  Navigator.pop(ctx);
+                  _showVoiceRecorder();
+                },
+                onOpenVideoCircle: () {
+                  Navigator.pop(ctx);
+                  _showVideoCircle();
+                },
+                onPickFile: () {
+                  Navigator.pop(ctx);
+                  MediaUtils.pickAnyFile().then((result) {
+                    if (result != null) _sendMedia(result);
+                  });
+                },
+              ),
+              if (widget.channel.type == 'dm' && _peerId != null) ...[
+                const Divider(height: 1),
+                _ContactAction(
+                  peerId: _peerId!,
+                  peerName: _peerName,
+                  isContact: _isContact,
+                  onChanged: () async {
+                    if (_isContact) {
+                      await ApiService.removeContact(_peerId!);
+                    } else {
+                      final name = await _showContactNameDialog();
+                      if (name != null) {
+                        await ApiService.addContact(_peerId!, displayName: name);
+                      }
+                    }
+                    if (mounted) setState(() => _isContact = !_isContact);
+                  },
+                ),
+              ],
+            ],
           ),
         ),
       ),
     );
+  }
+
+  Future<String?> _showContactNameDialog() async {
+    final ctrl = TextEditingController(text: _peerName);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Добавить в контакты'),
+        content: TextField(
+          controller: ctrl,
+          decoration: const InputDecoration(labelText: 'Имя контакта'),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Отмена')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('Добавить')),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    return name;
   }
 
   void _showVoiceRecorder() {
@@ -612,6 +661,65 @@ class _ChatScreenState extends State<ChatScreen> {
       body: Column(
         children: [
           const IncomingCallBanner(),
+          if (widget.channel.type != 'dm')
+            Consumer<CallService>(
+              builder: (_, call, __) {
+                final inRoom = call.inVoiceRoom && call.voiceChannelId == widget.channel.id;
+                final cs = Theme.of(context).colorScheme;
+                return GestureDetector(
+                  onTap: inRoom
+                      ? () => showVoiceRoomPanel(context, channelName: widget.channel.name.isNotEmpty ? widget.channel.name : 'Голосовой канал')
+                      : null,
+                  child: Container(
+                    width: double.infinity,
+                    color: inRoom ? Colors.green.withValues(alpha: 0.15) : null,
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: inRoom ? 8 : 6),
+                      child: Row(
+                        children: [
+                          Icon(
+                            inRoom ? Icons.headset : Icons.headset_off,
+                            size: 18,
+                            color: inRoom ? Colors.green : null,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              inRoom
+                                  ? 'В голосовом канале${call.voiceParticipants.isNotEmpty ? " (${call.voiceParticipants.length})" : ""}'
+                                  : 'Голосовой канал',
+                              style: TextStyle(fontSize: 13, color: inRoom ? Colors.green : null),
+                            ),
+                          ),
+                          if (inRoom)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                TextButton(
+                                  onPressed: () => call.leaveVoiceRoom(),
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: Colors.red,
+                                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  child: const Text('Выйти', style: TextStyle(fontSize: 12)),
+                                ),
+                                Icon(Icons.keyboard_arrow_up, size: 18, color: cs.outline),
+                              ],
+                            )
+                          else
+                            TextButton(
+                              onPressed: () => call.joinVoiceRoom(widget.channel.id),
+                              child: const Text('Подключиться', style: TextStyle(fontSize: 12)),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
@@ -1469,6 +1577,41 @@ class _FileContentState extends State<_FileContent> {
                   Text(sub, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.outline)),
                 ],
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ContactAction extends StatelessWidget {
+  final String peerId;
+  final String peerName;
+  final bool isContact;
+  final VoidCallback onChanged;
+
+  const _ContactAction({
+    required this.peerId,
+    required this.peerName,
+    required this.isContact,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onChanged,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Icon(isContact ? Icons.person_remove_outlined : Icons.person_add_outlined, color: cs.primary),
+            const SizedBox(width: 12),
+            Text(
+              isContact ? 'Удалить из контактов' : 'Добавить в контакты',
+              style: TextStyle(color: cs.primary, fontSize: 15),
             ),
           ],
         ),

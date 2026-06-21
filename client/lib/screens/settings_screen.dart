@@ -184,6 +184,12 @@ class _SettingsBodyState extends State<SettingsBody> {
           ),
           const Divider(),
           ListTile(
+            leading: const Icon(Icons.block),
+            title: Text(Strings.t('settings.blocked_users')),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _showBlockedUsers(),
+          ),
+          ListTile(
             leading: const Icon(Icons.search),
             title: Text(Strings.t('settings.search_users')),
             trailing: const Icon(Icons.chevron_right),
@@ -298,6 +304,13 @@ class _SettingsBodyState extends State<SettingsBody> {
 
   void _showUserSearch() {
     showSearch(context: context, delegate: UserSearchDialog());
+  }
+
+  void _showBlockedUsers() {
+    showDialog(
+      context: context,
+      builder: (ctx) => _BlockedUsersDialog(),
+    );
   }
 }
 
@@ -530,21 +543,122 @@ class UserSearchDialog extends SearchDelegate<User> {
         if (users.isEmpty) return Center(child: Text(Strings.t('common.no_users')));
         return ListView.builder(
           itemCount: users.length,
-          itemBuilder: (_, i) => ListTile(
-            leading: CircleAvatar(
-              backgroundImage: users[i].avatarId != null
-                  ? NetworkImage(ApiService.getFileUrl(users[i].avatarId!))
-                  : null,
-              child: users[i].avatarId == null
-                  ? Text(users[i].username[0].toUpperCase())
-                  : null,
-            ),
-            title: Text(users[i].displayName),
-            subtitle: Text(users[i].atUsername),
-            onTap: () => _openDmOrCreateChannel(context, users[i]),
-          ),
+          itemBuilder: (_, i) {
+            final user = users[i];
+            return ListTile(
+              leading: CircleAvatar(
+                backgroundImage: user.avatarId != null
+                    ? NetworkImage(ApiService.getFileUrl(user.avatarId!))
+                    : null,
+                child: user.avatarId == null
+                    ? Text(user.username[0].toUpperCase())
+                    : null,
+              ),
+              title: Text(user.displayName),
+              subtitle: Text(user.atUsername),
+              onTap: () => _openDmOrCreateChannel(context, user),
+              onLongPress: () async {
+                final blocked = await ApiService.isBlockedBy(user.id);
+                final action = blocked
+                    ? Strings.t('settings.unblock')
+                    : Strings.t('settings.block');
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: Text(action),
+                    content: Text(blocked
+                        ? '${Strings.t('settings.unblock')} @${user.username}?'
+                        : Strings.t('settings.block_confirm').replaceFirst('{name}', user.username)),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(Strings.t('common.cancel'))),
+                      FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(action)),
+                    ],
+                  ),
+                );
+                if (confirm == true && context.mounted) {
+                  if (blocked) {
+                    await ApiService.unblockUser(user.id);
+                  } else {
+                    await ApiService.blockUser(user.id);
+                  }
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(blocked
+                          ? '${user.username} ${Strings.t('settings.unblock').toLowerCase()}'
+                          : '${user.username} ${Strings.t('settings.block').toLowerCase()}')),
+                    );
+                  }
+                }
+              },
+            );
+          },
         );
       },
+    );
+  }
+}
+
+class _BlockedUsersDialog extends StatefulWidget {
+  @override
+  State<_BlockedUsersDialog> createState() => _BlockedUsersDialogState();
+}
+
+class _BlockedUsersDialogState extends State<_BlockedUsersDialog> {
+  List<User>? _users;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final users = await ApiService.getBlacklist();
+    if (mounted) setState(() { _users = users; _loading = false; });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(Strings.t('settings.blocked_users')),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: 400,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _users!.isEmpty
+                ? Center(child: Text(Strings.t('settings.blocked_empty')))
+                : ListView.builder(
+                    itemCount: _users!.length,
+                    itemBuilder: (_, i) {
+                      final u = _users![i];
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundImage: u.avatarId != null
+                              ? NetworkImage(ApiService.getFileUrl(u.avatarId!))
+                              : null,
+                          child: u.avatarId == null ? Text(u.username[0].toUpperCase()) : null,
+                        ),
+                        title: Text(u.displayName),
+                        subtitle: Text(u.atUsername),
+                        trailing: TextButton(
+                          onPressed: () async {
+                            await ApiService.unblockUser(u.id);
+                            _load();
+                          },
+                          child: Text(Strings.t('settings.unblock')),
+                        ),
+                      );
+                    },
+                  ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(Strings.t('common.cancel')),
+        ),
+      ],
     );
   }
 }

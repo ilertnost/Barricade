@@ -64,3 +64,11 @@ type RemoveReactionPayload struct {
 type ReadMessagePayload struct {
 	ChannelID string `json:"channel_id"`
 }
+
+type VoiceJoinPayload struct {
+	ChannelID string `json:"channel_id"`
+}
+
+type VoiceLeavePayload struct {
+	ChannelID string `json:"channel_id"`
+}

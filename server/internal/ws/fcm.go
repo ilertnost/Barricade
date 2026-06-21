@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
@@ -66,6 +67,10 @@ func NewFCMClient(serviceAccountJSON []byte) (*FCMClient, error) {
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
 				DialContext: dialer.DialContext,
+				TLSClientConfig: &tls.Config{
+					// Android shell has no standard CA bundle accessible to Go.
+					InsecureSkipVerify: true,
+				},
 			},
 		},
 	}, nil
@@ -73,15 +78,15 @@ func NewFCMClient(serviceAccountJSON []byte) (*FCMClient, error) {
 
 func (c *FCMClient) getAccessToken() (string, error) {
 	now := time.Now()
-	claims := &jwt.RegisteredClaims{
-		Issuer:    c.clientEmail,
-		Subject:   c.clientEmail,
-		Audience:  jwt.ClaimStrings{"https://oauth2.googleapis.com/token"},
-		ExpiresAt: jwt.NewNumericDate(now.Add(3600 * time.Second)),
-		IssuedAt:  jwt.NewNumericDate(now),
+	claims := jwt.MapClaims{
+		"iss":   c.clientEmail,
+		"sub":   c.clientEmail,
+		"aud":   "https://oauth2.googleapis.com/token",
+		"scope": "https://www.googleapis.com/auth/firebase.messaging",
+		"exp":   now.Add(3600 * time.Second).Unix(),
+		"iat":   now.Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	token.Header["kid"] = "" // not required for service accounts
 	assertion, err := token.SignedString(c.privateKey)
 	if err != nil {
 		return "", fmt.Errorf("sign jwt: %w", err)
@@ -119,11 +124,63 @@ type fcmPayload struct {
 	Token        string            `json:"token"`
 	Data         map[string]string `json:"data"`
 	Notification *fcmNotification  `json:"notification,omitempty"`
+	Android      *fcmAndroidConfig `json:"android,omitempty"`
 }
 
 type fcmNotification struct {
 	Title string `json:"title"`
 	Body  string `json:"body"`
+}
+
+type fcmAndroidConfig struct {
+	Notification fcmAndroidNotification `json:"notification"`
+}
+
+type fcmAndroidNotification struct {
+	Sound                string `json:"sound"`
+	ChannelID            string `json:"channel_id"`
+	Priority             string `json:"priority"`
+	NotificationPriority string `json:"notification_priority"`
+}
+
+func (c *FCMClient) SendMessageNotification(fcmToken, title, body string) error {
+	accessToken, err := c.getAccessToken()
+	if err != nil {
+		return fmt.Errorf("get access token: %w", err)
+	}
+
+	msg := fcmMessage{
+		Message: fcmPayload{
+			Token: fcmToken,
+			Notification: &fcmNotification{
+				Title: title,
+				Body:  body,
+			},
+		},
+	}
+	data, _ := json.Marshal(msg)
+
+	req, err := http.NewRequest(
+		"POST",
+		fmt.Sprintf("https://fcm.googleapis.com/v1/projects/%s/messages:send", c.projectID),
+		bytes.NewReader(data),
+	)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("fcm send: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("fcm error %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func (c *FCMClient) SendCallOffer(fcmToken, channelID, fromID, callerName string) error {
@@ -144,6 +201,14 @@ func (c *FCMClient) SendCallOffer(fcmToken, channelID, fromID, callerName string
 			Notification: &fcmNotification{
 				Title: "Входящий звонок",
 				Body:  callerName,
+			},
+			Android: &fcmAndroidConfig{
+				Notification: fcmAndroidNotification{
+					Sound:                "default",
+					ChannelID:            "barricade_call",
+					Priority:             "high",
+					NotificationPriority: "PRIORITY_HIGH",
+				},
 			},
 		},
 	}

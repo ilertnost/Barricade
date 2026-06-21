@@ -570,6 +570,64 @@ func (h *Handler) AddChannelMember(w http.ResponseWriter, r *http.Request) {
 	jsonResp(w, http.StatusOK, map[string]string{"status": "added"})
 }
 
+func (h *Handler) BlockUser(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(string)
+	targetID := r.PathValue("userId")
+	if targetID == "" {
+		jsonError(w, "user id required", http.StatusBadRequest)
+		return
+	}
+	if targetID == userID {
+		jsonError(w, "cannot block yourself", http.StatusBadRequest)
+		return
+	}
+	if err := h.DB.BlockUser(userID, targetID); err != nil {
+		jsonError(w, "failed to block user", http.StatusInternalServerError)
+		return
+	}
+	jsonResp(w, http.StatusOK, map[string]string{"status": "blocked"})
+}
+
+func (h *Handler) UnblockUser(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(string)
+	targetID := r.PathValue("userId")
+	if targetID == "" {
+		jsonError(w, "user id required", http.StatusBadRequest)
+		return
+	}
+	if err := h.DB.UnblockUser(userID, targetID); err != nil {
+		jsonError(w, "failed to unblock user", http.StatusInternalServerError)
+		return
+	}
+	jsonResp(w, http.StatusOK, map[string]string{"status": "unblocked"})
+}
+
+func (h *Handler) GetBlacklist(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(string)
+	ids, err := h.DB.GetBlacklist(userID)
+	if err != nil {
+		jsonError(w, "failed to get blacklist", http.StatusInternalServerError)
+		return
+	}
+	users := make([]*model.User, 0, len(ids))
+	for _, id := range ids {
+		u, err := h.DB.GetUser(id)
+		if err != nil {
+			continue
+		}
+		u.Online = h.Hub.IsUserOnline(u.ID)
+		users = append(users, u)
+	}
+	jsonResp(w, http.StatusOK, users)
+}
+
+func (h *Handler) IsBlockedBy(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(string)
+	targetID := r.PathValue("userId")
+	blocked, _ := h.DB.IsBlocked(userID, targetID)
+	jsonResp(w, http.StatusOK, map[string]bool{"blocked": blocked})
+}
+
 func (h *Handler) RegisterFCMToken(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(string)
 	var body struct {
@@ -840,6 +898,85 @@ func jsonResp(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
+}
+
+func (h *Handler) AddContact(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(string)
+	contactID := r.PathValue("contactId")
+	if contactID == "" {
+		jsonError(w, "contact id required", http.StatusBadRequest)
+		return
+	}
+	if contactID == userID {
+		jsonError(w, "cannot add yourself", http.StatusBadRequest)
+		return
+	}
+	var body struct {
+		DisplayName string `json:"display_name"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if err := h.DB.AddContact(userID, contactID, body.DisplayName); err != nil {
+		jsonError(w, "failed to add contact", http.StatusInternalServerError)
+		return
+	}
+	jsonResp(w, http.StatusOK, map[string]string{"status": "added"})
+}
+
+func (h *Handler) RemoveContact(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(string)
+	contactID := r.PathValue("contactId")
+	if contactID == "" {
+		jsonError(w, "contact id required", http.StatusBadRequest)
+		return
+	}
+	if err := h.DB.RemoveContact(userID, contactID); err != nil {
+		jsonError(w, "failed to remove contact", http.StatusInternalServerError)
+		return
+	}
+	jsonResp(w, http.StatusOK, map[string]string{"status": "removed"})
+}
+
+func (h *Handler) GetContacts(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(string)
+	contacts, err := h.DB.GetContacts(userID)
+	if err != nil {
+		jsonError(w, "failed to get contacts", http.StatusInternalServerError)
+		return
+	}
+	// Enrich with user info
+	type contactResp struct {
+		ContactID   string `json:"contact_id"`
+		DisplayName string `json:"display_name"`
+		Username    string `json:"username"`
+		AvatarID    *string `json:"avatar_id"`
+		Online      bool   `json:"online"`
+	}
+	result := make([]contactResp, 0, len(contacts))
+	for _, c := range contacts {
+		u, err := h.DB.GetUser(c.ContactID)
+		if err != nil {
+			continue
+		}
+		dn := c.DisplayName
+		if dn == "" {
+			dn = u.DisplayName
+		}
+		result = append(result, contactResp{
+			ContactID:   c.ContactID,
+			DisplayName: dn,
+			Username:    u.Username,
+			AvatarID:    u.AvatarID,
+			Online:      h.Hub.IsUserOnline(u.ID),
+		})
+	}
+	jsonResp(w, http.StatusOK, result)
+}
+
+func (h *Handler) IsContact(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("user_id").(string)
+	contactID := r.PathValue("contactId")
+	ok, _ := h.DB.IsContact(userID, contactID)
+	jsonResp(w, http.StatusOK, map[string]bool{"contact": ok})
 }
 
 func jsonError(w http.ResponseWriter, msg string, status int) {

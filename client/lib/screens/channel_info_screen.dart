@@ -7,6 +7,8 @@ import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/audio_player_service.dart';
 import '../services/file_saver.dart';
+import '../services/mute_service.dart';
+import '../services/call_service.dart';
 import '../widgets/user_avatar.dart';
 
 /// Telegram-style chat info: header + tabs (Media / Files / Music / Links /
@@ -58,6 +60,16 @@ class _ChannelInfoScreenState extends State<ChannelInfoScreen> {
     }
   }
 
+  Future<bool> _loadBlocked() async {
+    final peer = _members.where((m) => m.id != _myId).firstOrNull;
+    if (peer == null) return false;
+    try {
+      return await ApiService.isBlockedBy(peer.id);
+    } catch (_) {
+      return false;
+    }
+  }
+
   String get _typeLabel => _channel.isChannel ? Strings.t('channel.channel') : _channel.isGroup ? Strings.t('channel.group') : Strings.t('channel.dm');
 
   @override
@@ -101,6 +113,35 @@ class _ChannelInfoScreenState extends State<ChannelInfoScreen> {
                   const SizedBox(height: 2),
                   Text(Strings.t('info.member_count').replaceFirst('{type}', _typeLabel).replaceFirst('{count}', '${_members.length}'),
                       style: TextStyle(color: cs.outline, fontSize: 13)),
+                  // Voice room section for groups/channels
+                  if (!_channel.isDm)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Consumer<CallService>(
+                        builder: (_, call, __) {
+                          final inRoom = call.inVoiceRoom && call.voiceChannelId == _channel.id;
+                          return Column(
+                            children: [
+                              if (inRoom && call.voiceParticipants.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: Text(
+                                    'В комнате: ${call.voiceParticipants.join(", ")}',
+                                    style: TextStyle(color: cs.primary, fontSize: 13),
+                                  ),
+                                ),
+                              TextButton.icon(
+                                onPressed: inRoom
+                                    ? () => call.leaveVoiceRoom()
+                                    : () => call.joinVoiceRoom(_channel.id),
+                                icon: Icon(inRoom ? Icons.headset_off : Icons.headset, size: 18),
+                                label: Text(inRoom ? 'Покинуть' : 'Голосовой канал'),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
                   if (_channel.visibility == 'private')
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
@@ -109,6 +150,48 @@ class _ChannelInfoScreenState extends State<ChannelInfoScreen> {
                         const SizedBox(width: 4),
                         Text(Strings.t('channel.private'), style: TextStyle(color: cs.outline, fontSize: 12)),
                       ]),
+                    ),
+                  if (_channel.isDm)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Column(
+                        children: [
+                          Consumer<CallService>(
+                            builder: (_, callService, __) {
+                              final muted = MuteService.isMuted(_channel.id);
+                              return TextButton.icon(
+                                onPressed: () async {
+                                  await MuteService.toggleMute(_channel.id);
+                                  if (mounted) setState(() {});
+                                },
+                                icon: Icon(muted ? Icons.volume_off : Icons.volume_up, size: 18),
+                                label: Text(muted ? Strings.t('settings.unmute') : Strings.t('settings.mute')),
+                              );
+                            },
+                          ),
+                          FutureBuilder<bool>(
+                            future: _loadBlocked(),
+                            initialData: false,
+                            builder: (_, snap) {
+                              final blocked = snap.data ?? false;
+                              return TextButton.icon(
+                                onPressed: () async {
+                                  final peer = _members.where((m) => m.id != _myId).firstOrNull;
+                                  if (peer == null) return;
+                                  if (blocked) {
+                                    await ApiService.unblockUser(peer.id);
+                                  } else {
+                                    await ApiService.blockUser(peer.id);
+                                  }
+                                  if (mounted) setState(() {});
+                                },
+                                icon: Icon(blocked ? Icons.person_off : Icons.block, size: 18),
+                                label: Text(blocked ? Strings.t('settings.unblock') : Strings.t('settings.block')),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
                     ),
                 ],
               ),

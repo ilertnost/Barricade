@@ -1,4 +1,5 @@
 import 'dart:io' show Platform;
+import 'dart:ui' as ui show PlatformDispatcher;
 
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -18,6 +19,7 @@ import 'services/locale_controller.dart';
 import 'services/quick_reaction_controller.dart';
 import 'services/audio_player_service.dart';
 import 'services/platform_call_service.dart';
+import 'services/mute_service.dart';
 import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
@@ -33,23 +35,40 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   if (type == 'call_offer') {
     final callerName = data['caller_name'] ?? '';
     final fromId = data['from_id'] ?? '';
-    PlatformCallService.showIncomingCall(callerName, fromId);
+    final channelId = data['channel_id'] ?? '';
+    PlatformCallService.showIncomingCall(callerName, fromId, channelId: channelId);
   }
 }
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  FlutterError.onError = (details) {
+    debugPrint('FLUTTER ERROR: ${details.exception}');
+    debugPrint('STACK: ${details.stack}');
+  };
+  ui.PlatformDispatcher.instance.onError = (error, stack) {
+    debugPrint('PLATFORM ERROR: $error\n$stack');
+    return true;
+  };
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-  await Firebase.initializeApp();
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    debugPrint('FIREBASE INIT ERROR: $e');
+  }
   await JustAudioBackground.init(
     androidNotificationChannelId: 'com.barricade.audio',
     androidNotificationChannelName: 'Воспроизведение',
     androidNotificationOngoing: true,
   );
   if (Platform.isAndroid) {
-    await Permission.notification.request();
+    try {
+      await Permission.notification.request();
+    } catch (_) {}
   }
+  debugPrint('MAIN: about to runApp');
   runApp(const BarricadeApp());
+  debugPrint('MAIN: runApp called');
 }
 
 class BarricadeApp extends StatelessWidget {
@@ -125,11 +144,17 @@ class AuthGate extends StatefulWidget {
 
 class _AuthGateState extends State<AuthGate> {
   bool _checking = true;
+  bool _initialized = false;
 
   @override
   void initState() {
     super.initState();
-    _checkAuth();
+    _init();
+  }
+
+  Future<void> _init() async {
+    await MuteService.init();
+    if (mounted) _checkAuth();
   }
 
   Future<void> _checkAuth() async {
@@ -149,14 +174,17 @@ class _AuthGateState extends State<AuthGate> {
     return Consumer<AppState>(
       builder: (_, state, __) {
         if (state.loggedIn) {
-          WidgetsBinding.instance.addPostFrameCallback((_) async {
-            context.read<WsService>().connect();
-            final fcm = context.read<FcmService>();
-            await FcmService.init();
-            fcm.setupListeners();
-            final token = await fcm.getToken();
-            if (token != null) fcm.registerToken(token);
-          });
+          if (!_initialized) {
+            _initialized = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) async {
+              context.read<WsService>().connect();
+              final fcm = context.read<FcmService>();
+              await FcmService.init();
+              fcm.setupListeners();
+              final token = await fcm.getToken();
+              if (token != null) fcm.registerToken(token);
+            });
+          }
           return const HomeScreen();
         }
         return LoginScreen(onLogin: () => state.setLoggedIn(true));

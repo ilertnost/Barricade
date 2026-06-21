@@ -14,9 +14,11 @@ import (
 )
 
 type pendingOfferEntry struct {
-	targetID string
-	msg      OutgoingMessage
-	remove   bool
+	targetID  string
+	callerID  string
+	msg       OutgoingMessage
+	remove    bool
+	isTimeout bool
 }
 
 type Hub struct {
@@ -28,6 +30,7 @@ type Hub struct {
 	pendingOffers   map[string]OutgoingMessage
 	pendingOfferReq chan pendingOfferEntry
 	fcmClient       *FCMClient
+	voiceRooms      map[string]map[string]*Client
 }
 
 func NewHub(database *db.DB) *Hub {
@@ -59,6 +62,7 @@ func NewHub(database *db.DB) *Hub {
 		pendingOffers:   make(map[string]OutgoingMessage),
 		pendingOfferReq: make(chan pendingOfferEntry, 64),
 		fcmClient:       fcmClient,
+		voiceRooms:      make(map[string]map[string]*Client),
 	}
 }
 
@@ -80,6 +84,19 @@ func (h *Hub) Run() {
 			for chID := range h.channels {
 				delete(h.channels[chID], client.UserID)
 			}
+			// Remove from voice rooms and broadcast leave
+			for chID, members := range h.voiceRooms {
+				if _, ok := members[client.UserID]; ok {
+					delete(members, client.UserID)
+					h.broadcast(chID, OutgoingMessage{
+						Type: "voice_room_user_left",
+						Payload: map[string]interface{}{
+							"channel_id": chID,
+							"user_id":    client.UserID,
+						},
+					})
+				}
+			}
 			close(client.Send)
 			go func() {
 				h.DB.UpdateLastSeen(client.UserID)
@@ -89,7 +106,36 @@ func (h *Hub) Run() {
 
 		case entry := <-h.pendingOfferReq:
 			if entry.remove {
-				delete(h.pendingOffers, entry.targetID)
+				wasPending := false
+				if _, ok := h.pendingOffers[entry.targetID]; ok {
+					wasPending = true
+					delete(h.pendingOffers, entry.targetID)
+				}
+				if entry.isTimeout && wasPending {
+					log.Printf("offer to %s timed out after 20s", entry.targetID)
+					// Notify caller
+					if caller, ok := h.clients[entry.callerID]; ok {
+						caller.SendJSON(OutgoingMessage{
+							Type: "webrtc",
+							Payload: map[string]interface{}{
+								"type":    "end_call",
+								"reason":  "timeout",
+								"from_id": entry.callerID,
+							},
+						})
+					}
+					// Notify target
+					if target, ok := h.clients[entry.targetID]; ok {
+						target.SendJSON(OutgoingMessage{
+							Type: "webrtc",
+							Payload: map[string]interface{}{
+								"type":    "end_call",
+								"reason":  "timeout",
+								"from_id": entry.targetID,
+							},
+						})
+					}
+				}
 			} else {
 				h.pendingOffers[entry.targetID] = entry.msg
 				if h.fcmClient != nil {
@@ -153,6 +199,10 @@ func (h *Hub) handleMessage(client *Client, raw []byte) {
 		h.handleWebRTC(client, msg.Payload)
 	case "message_read":
 		h.handleReadMessage(client, msg.Payload)
+	case "voice_room_join":
+		h.handleVoiceRoomJoin(client, msg.Payload)
+	case "voice_room_leave":
+		h.handleVoiceRoomLeave(client, msg.Payload)
 	default:
 		client.SendError("unknown message type")
 	}
@@ -167,6 +217,21 @@ func (h *Hub) handleSendMessage(client *Client, payload json.RawMessage) {
 	if !h.isMember(client.UserID, p.ChannelID) {
 		client.SendError("not a member of this channel")
 		return
+	}
+	// Blacklist check: if this is a DM and any member blocked the sender, reject.
+	if ch, chErr := h.DB.GetChannel(p.ChannelID); chErr == nil && ch.Type == "dm" {
+		members, mErr := h.DB.GetChannelMembers(p.ChannelID)
+		if mErr == nil {
+			for _, m := range members {
+				if m.ID != client.UserID {
+					blocked, _ := h.DB.IsBlocked(m.ID, client.UserID)
+					if blocked {
+						client.SendError("you are blocked by this user")
+						return
+					}
+				}
+			}
+		}
 	}
 	// Broadcast channels (type "guild"): only owner/admin may post.
 	if ch, err := h.DB.GetChannel(p.ChannelID); err == nil && ch.Type == "guild" {
@@ -203,6 +268,8 @@ func (h *Hub) handleSendMessage(client *Client, payload json.RawMessage) {
 		return
 	}
 	h.broadcast(p.ChannelID, OutgoingMessage{Type: "new_message", Payload: msg})
+	// Send FCM push to offline members.
+	h.pushMessageNotification(client, p.ChannelID, msg)
 }
 
 func (h *Hub) handleEditMessage(client *Client, payload json.RawMessage) {
@@ -360,18 +427,38 @@ func (h *Hub) handleWebRTC(client *Client, payload json.RawMessage) {
 		},
 	}
 	if p.Type == "end_call" {
-		// end_call must also remove any pending offer for the target.
-		h.pendingOfferReq <- pendingOfferEntry{targetID: p.TargetID, msg: msg, remove: true}
+		// Cancel any pending timeout for this target.
+		h.pendingOfferReq <- pendingOfferEntry{
+			targetID: p.TargetID,
+			remove:   true,
+			isTimeout: false,
+		}
+		if target, ok := h.clients[p.TargetID]; ok {
+			target.SendJSON(msg)
+		}
+		return
+	}
+	if p.Type == "answer" {
+		// Cancel pending timeout on answer.
+		h.pendingOfferReq <- pendingOfferEntry{
+			targetID: p.TargetID,
+			remove:   true,
+			isTimeout: false,
+		}
 		if target, ok := h.clients[p.TargetID]; ok {
 			target.SendJSON(msg)
 		}
 		return
 	}
 	if p.Type != "offer" {
-		// answer/candidate only meaningful when target is connected.
+		// candidate only meaningful when target is connected.
 		if target, ok := h.clients[p.TargetID]; ok {
 			target.SendJSON(msg)
 		}
+		return
+	}
+	// Blacklist check: if the target blocked the caller, silently drop the offer.
+	if blocked, _ := h.DB.IsBlocked(p.TargetID, client.UserID); blocked {
 		return
 	}
 	// For offers: check if target is online first, then try direct send.
@@ -379,9 +466,19 @@ func (h *Hub) handleWebRTC(client *Client, payload json.RawMessage) {
 	if target, ok := h.clients[p.TargetID]; ok {
 		target.SendJSON(msg)
 	} else {
-		h.pendingOfferReq <- pendingOfferEntry{targetID: p.TargetID, msg: msg}
+		h.pendingOfferReq <- pendingOfferEntry{targetID: p.TargetID, msg: msg, remove: false}
 		log.Printf("stored pending offer for user %s", p.TargetID)
 	}
+	// Start 20-second timeout: if no answer received, auto-cancel the call.
+	go func(targetID, callerID string) {
+		time.Sleep(20 * time.Second)
+		h.pendingOfferReq <- pendingOfferEntry{
+			targetID:  targetID,
+			callerID:  callerID,
+			remove:    true,
+			isTimeout: true,
+		}
+	}(p.TargetID, client.UserID)
 }
 
 func (h *Hub) handleAddReaction(client *Client, payload json.RawMessage) {
@@ -516,6 +613,129 @@ func (h *Hub) sendFCMOffer(targetID string, msg OutgoingMessage) {
 	}
 	if err := h.fcmClient.SendCallOffer(token, channelID, fromID, callerName); err != nil {
 		log.Printf("FCM push error: %v", err)
+	}
+}
+
+func (h *Hub) pushMessageNotification(sender *Client, channelID string, msg *model.Message) {
+	if h.fcmClient == nil {
+		return
+	}
+	members, err := h.DB.GetChannelMembers(channelID)
+	if err != nil {
+		return
+	}
+	ch, chErr := h.DB.GetChannel(channelID)
+	if chErr != nil {
+		return
+	}
+	for _, m := range members {
+		if m.ID == sender.UserID {
+			continue
+		}
+		// Skip if online (already got real-time delivery).
+		if h.IsUserOnline(m.ID) {
+			continue
+		}
+		// Skip if the sender is blocked by this member.
+		if blocked, _ := h.DB.IsBlocked(m.ID, sender.UserID); blocked {
+			continue
+		}
+		body := msg.Content
+		if msg.FileID != nil {
+			if msg.MimeType != "" {
+				body = "[" + msg.MimeType + "]"
+			} else {
+				body = "[file]"
+			}
+		}
+		if body == "" {
+			body = "[message]"
+		}
+		// Truncate long messages for push.
+		if len(body) > 100 {
+			body = body[:100] + "..."
+		}
+		channelName := ch.Name
+		if ch.Type == "dm" {
+			channelName = sender.DisplayName
+		}
+		go h.sendFCMMessageNotification(m.ID, channelName, body)
+	}
+}
+
+func (h *Hub) sendFCMMessageNotification(targetID, title, body string) {
+	token, err := h.DB.GetFCMToken(targetID)
+	if err != nil {
+		return
+	}
+	if err := h.fcmClient.SendMessageNotification(token, title, body); err != nil {
+		log.Printf("FCM message push error: %v", err)
+	}
+}
+
+func (h *Hub) handleVoiceRoomJoin(client *Client, payload json.RawMessage) {
+	var p VoiceJoinPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		client.SendError("invalid payload")
+		return
+	}
+	if !h.isMember(client.UserID, p.ChannelID) {
+		client.SendError("not a member")
+		return
+	}
+	if _, ok := h.voiceRooms[p.ChannelID]; !ok {
+		h.voiceRooms[p.ChannelID] = make(map[string]*Client)
+	}
+	var existing []string
+	for uid := range h.voiceRooms[p.ChannelID] {
+		if uid != client.UserID {
+			existing = append(existing, uid)
+		}
+	}
+	h.voiceRooms[p.ChannelID][client.UserID] = client
+	// Send current participants to the joiner.
+	client.SendJSON(OutgoingMessage{
+		Type: "voice_room_participants",
+		Payload: map[string]interface{}{
+			"channel_id":   p.ChannelID,
+			"participants": existing,
+		},
+	})
+	// Broadcast join to existing participants.
+	for uid, c := range h.voiceRooms[p.ChannelID] {
+		if uid != client.UserID {
+			c.SendJSON(OutgoingMessage{
+				Type: "voice_room_user_joined",
+				Payload: map[string]interface{}{
+					"channel_id":   p.ChannelID,
+					"user_id":      client.UserID,
+					"username":     client.Username,
+					"display_name": client.DisplayName,
+				},
+			})
+		}
+	}
+	log.Printf("user %s joined voice room %s (%d participants)", client.Username, p.ChannelID, len(h.voiceRooms[p.ChannelID]))
+}
+
+func (h *Hub) handleVoiceRoomLeave(client *Client, payload json.RawMessage) {
+	var p VoiceLeavePayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		client.SendError("invalid payload")
+		return
+	}
+	if members, ok := h.voiceRooms[p.ChannelID]; ok {
+		if _, exists := members[client.UserID]; exists {
+			delete(members, client.UserID)
+			h.broadcast(p.ChannelID, OutgoingMessage{
+				Type: "voice_room_user_left",
+				Payload: map[string]interface{}{
+					"channel_id": p.ChannelID,
+					"user_id":    client.UserID,
+				},
+			})
+			log.Printf("user %s left voice room %s", client.Username, p.ChannelID)
+		}
 	}
 }
 

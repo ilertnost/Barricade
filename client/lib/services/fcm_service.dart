@@ -51,13 +51,13 @@ class FcmService {
     }
   }
 
-  void setupListeners() {
+  Future<void> setupListeners() async {
     final messaging = FirebaseMessaging.instance;
 
-    // App was killed and opened from notification
-    messaging.getInitialMessage().then((msg) {
-      if (msg != null) handleMessage(msg.data);
-    });
+    // On cold start from a killed state, skip getInitialMessage entirely.
+    // The pending offer will be delivered via WebSocket once it reconnects.
+    // Processing getInitialMessage during the first frame can interfere
+    // with widget tree rendering on some devices (Xiaomi/HyperOS).
 
     // App was in background and notification was tapped
     FirebaseMessaging.onMessageOpenedApp.listen((msg) {
@@ -82,7 +82,7 @@ class FcmService {
 
     // FCM push arrived — show incoming call notification via platform channel.
     // The WebSocket may reconnect later and deliver the full offer.
-    PlatformCallService.showIncomingCall(callerName, fromId);
+    PlatformCallService.showIncomingCall(callerName, fromId, channelId: channelId);
 
     // Also notify CallService so it can prepare state.
     _call.prepareIncoming(fromId, channelId, callerName);

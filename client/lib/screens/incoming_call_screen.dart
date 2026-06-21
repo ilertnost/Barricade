@@ -138,7 +138,7 @@ class IncomingCallFullscreen extends StatelessWidget {
       return const SizedBox.shrink();
     }
     return Material(
-      color: Colors.black.withOpacity(0.85),
+      color: Color(0xCC1A1A2E), // тёмно-фиолетовый, не путать с чёрным
       child: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {

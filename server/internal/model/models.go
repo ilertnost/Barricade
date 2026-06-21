@@ -104,3 +104,9 @@ type SendMessagePayload struct {
 	FileID    *string `json:"file_id,omitempty"`
 	ReplyToID *string `json:"reply_to_id,omitempty"`
 }
+
+type Contact struct {
+	ContactID   string `json:"contact_id"`
+	DisplayName string `json:"display_name"`
+	CreatedAt   int64  `json:"created_at"`
+}

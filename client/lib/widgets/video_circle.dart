@@ -93,14 +93,33 @@ class _VideoCircleState extends State<VideoCircle> {
   bool get _canSwitch => _frontIdx >= 0 && _backIdx >= 0;
 
   void _switchCam() async {
-    if (!_canSwitch || _switching || _recording) return;
+    if (!_canSwitch || _switching) return;
     setState(() => _switching = true);
+    final wasRecording = _recording;
     try {
+      // If recording, stop current clip and discard it.
+      if (wasRecording) {
+        _ticker?.cancel();
+        try {
+          await _ctrl?.stopVideoRecording();
+        } catch (_) {}
+      }
       await _ctrl?.dispose();
       _ctrl = null;
-      // Toggle front <-> main back only.
       _camIdx = _camIdx == _frontIdx ? _backIdx : _frontIdx;
       await _initCamera(_cameras[_camIdx]);
+      // Auto-restart recording after switch.
+      if (wasRecording) {
+        await _ctrl!.startVideoRecording();
+        setState(() {
+          _elapsedMs = 0;
+        });
+        _ticker = Timer.periodic(const Duration(milliseconds: 100), (_) {
+          if (!mounted) return;
+          setState(() => _elapsedMs += 100);
+          if (_elapsedMs >= _maxMs) _stopAndSend();
+        });
+      }
     } finally {
       if (mounted) setState(() => _switching = false);
     }
@@ -214,7 +233,7 @@ class _VideoCircleState extends State<VideoCircle> {
             if (_canSwitch)
               IconButton(
                 icon: const Icon(Icons.flip_camera_android),
-                onPressed: _recording ? null : _switchCam,
+                onPressed: _switching ? null : _switchCam,
               ),
             IconButton(
               icon: Icon(_flashOn ? Icons.flash_on : Icons.flash_off),
