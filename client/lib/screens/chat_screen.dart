@@ -16,6 +16,7 @@ import '../widgets/media_utils.dart';
 import '../widgets/user_avatar.dart';
 import 'channel_info_screen.dart';
 import 'call_screen.dart';
+import 'incoming_call_screen.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/voice_recorder.dart';
 import '../widgets/video_circle.dart';
@@ -610,6 +611,7 @@ class _ChatScreenState extends State<ChatScreen> {
       appBar: _selectionMode ? _selectionAppBar() : _chatAppBar(),
       body: Column(
         children: [
+          const IncomingCallBanner(),
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())

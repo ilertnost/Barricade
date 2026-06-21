@@ -94,7 +94,7 @@ class IncomingCallBanner extends StatelessWidget {
                         builder: (_) => CallScreen(
                           channelId: chId,
                           peerIds: [fromId],
-                          video: true,
+                          video: false,
                         ),
                       ),
                     );

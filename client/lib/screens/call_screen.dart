@@ -33,11 +33,24 @@ class _CallScreenState extends State<CallScreen> {
     _sub = call.participantStream.listen((_) {
       if (mounted) setState(() {});
     });
-    call.startCall(widget.channelId, widget.peerIds, video: widget.video);
+    call.addListener(_onCallStateChanged);
+    if (call.state != CallState.connected) {
+      call.startCall(widget.channelId, widget.peerIds, video: widget.video);
+    }
+  }
+
+  void _onCallStateChanged() {
+    if (!mounted) return;
+    final call = context.read<CallService>();
+    if (call.state == CallState.idle) {
+      call.removeListener(_onCallStateChanged);
+      Navigator.of(context).pop();
+    }
   }
 
   @override
   void dispose() {
+    context.read<CallService>().removeListener(_onCallStateChanged);
     _sub?.cancel();
     for (final r in _renderers.values) {
       r.dispose();
@@ -70,10 +83,7 @@ class _CallScreenState extends State<CallScreen> {
               backgroundColor: Colors.black87,
               leading: IconButton(
                 icon: const Icon(Icons.arrow_back, color: Colors.white),
-                onPressed: () {
-                  call.endCall();
-                  Navigator.pop(context);
-                },
+                onPressed: () => call.endCall(),
               ),
               title: Text(
                 widget.peerIds.length > 1
@@ -179,10 +189,7 @@ class _CallScreenState extends State<CallScreen> {
           _CtrlBtn(
             icon: Icons.call_end,
             color: Colors.red,
-            onTap: () {
-              call.endCall();
-              Navigator.pop(context);
-            },
+            onTap: () => call.endCall(),
           ),
           _CtrlBtn(
             icon: Icons.flip_camera_android,
