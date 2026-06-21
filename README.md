@@ -1,6 +1,6 @@
 # Barricade
 
-Self-hosted messenger for LAN. Go server + Flutter client.
+Self-hosted messenger (LAN alpha, will be VPS-hosted). Go server + Flutter client.
 
 ## Features
 
@@ -20,7 +20,7 @@ Barricade/
 └── client/      # Flutter app (Material 3, dark theme)
 ```
 
-Server runs on an Android phone (ARM64) in LAN. Clients connect via HTTP + WebSocket.
+Currently alpha - server runs on an Android phone (ARM64) in LAN. Future builds will run on a VPS/host for remote access.
 
 ## Quick Start
 
