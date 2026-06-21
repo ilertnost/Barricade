@@ -81,6 +81,33 @@ class _CallScreenState extends State<CallScreen> {
     if (_fullscreen) setState(() => _fullscreen = false);
   }
 
+  Future<void> _onScreenShareTap(CallService call) async {
+    if (call.isSharingScreen) {
+      await call.stopScreenShare();
+      if (mounted) setState(() {});
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Демонстрация экрана'),
+        content: const Text('Начать демонстрацию экрана?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Начать'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await call.startScreenShare();
+  }
+
   void _onKeyEvent(KeyEvent event) {
     if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.escape) {
       _exitFullscreen();
@@ -338,7 +365,7 @@ class _CallScreenState extends State<CallScreen> {
           _CtrlBtn(
             icon: call.isSharingScreen ? Icons.stop_screen_share : Icons.screen_share,
             color: call.isSharingScreen ? Colors.green : Colors.white,
-            onTap: () => call.toggleScreenShare(),
+            onTap: () => _onScreenShareTap(call),
           ),
           _CtrlBtn(
             icon: Icons.call_end,
