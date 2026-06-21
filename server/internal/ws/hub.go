@@ -16,6 +16,7 @@ import (
 type pendingOfferEntry struct {
 	targetID string
 	msg      OutgoingMessage
+	remove   bool
 }
 
 type Hub struct {
@@ -87,9 +88,13 @@ func (h *Hub) Run() {
 			log.Printf("user %s disconnected", client.Username)
 
 		case entry := <-h.pendingOfferReq:
-			h.pendingOffers[entry.targetID] = entry.msg
-			if h.fcmClient != nil {
-				go h.sendFCMOffer(entry.targetID, entry.msg)
+			if entry.remove {
+				delete(h.pendingOffers, entry.targetID)
+			} else {
+				h.pendingOffers[entry.targetID] = entry.msg
+				if h.fcmClient != nil {
+					go h.sendFCMOffer(entry.targetID, entry.msg)
+				}
 			}
 		}
 	}
@@ -354,9 +359,16 @@ func (h *Hub) handleWebRTC(client *Client, payload json.RawMessage) {
 			"from_id":    client.UserID,
 		},
 	}
+	if p.Type == "end_call" {
+		// end_call must also remove any pending offer for the target.
+		h.pendingOfferReq <- pendingOfferEntry{targetID: p.TargetID, msg: msg, remove: true}
+		if target, ok := h.clients[p.TargetID]; ok {
+			target.SendJSON(msg)
+		}
+		return
+	}
 	if p.Type != "offer" {
-		// Only pending-offer on disconnect makes sense; other types (answer, candidate, end_call)
-		// are only meaningful when the target is connected.
+		// answer/candidate only meaningful when target is connected.
 		if target, ok := h.clients[p.TargetID]; ok {
 			target.SendJSON(msg)
 		}

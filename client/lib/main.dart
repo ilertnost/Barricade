@@ -2,6 +2,7 @@ import 'dart:io' show Platform;
 
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:just_audio_background/just_audio_background.dart';
@@ -16,13 +17,29 @@ import 'services/theme_controller.dart';
 import 'services/locale_controller.dart';
 import 'services/quick_reaction_controller.dart';
 import 'services/audio_player_service.dart';
+import 'services/platform_call_service.dart';
 import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
 
+/// Top-level background FCM handler (runs in a separate isolate).
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // When app is killed, just show the native incoming call notification.
+  // The WebSocket will reconnect when user opens the app and deliver the offer.
+  final data = message.data;
+  final type = data['type'];
+  if (type == 'call_offer') {
+    final callerName = data['caller_name'] ?? '';
+    final fromId = data['from_id'] ?? '';
+    PlatformCallService.showIncomingCall(callerName, fromId);
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   await Firebase.initializeApp();
   await JustAudioBackground.init(
     androidNotificationChannelId: 'com.barricade.audio',

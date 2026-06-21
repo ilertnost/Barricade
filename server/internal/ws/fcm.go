@@ -2,11 +2,13 @@ package ws
 
 import (
 	"bytes"
+	"context"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -44,11 +46,28 @@ func NewFCMClient(serviceAccountJSON []byte) (*FCMClient, error) {
 	if !ok {
 		return nil, fmt.Errorf("private key is not RSA")
 	}
+	dialer := &net.Dialer{
+		Timeout:   10 * time.Second,
+		Resolver: &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				// Android shell processes can't use system DNS via /etc/resolv.conf.
+				// Use Google's public DNS directly.
+				d := net.Dialer{Timeout: 5 * time.Second}
+				return d.DialContext(ctx, "udp", "8.8.8.8:53")
+			},
+		},
+	}
 	return &FCMClient{
 		projectID:   sa.ProjectID,
 		clientEmail: sa.ClientEmail,
 		privateKey:  rsaKey,
-		httpClient:  &http.Client{Timeout: 10 * time.Second},
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				DialContext: dialer.DialContext,
+			},
+		},
 	}, nil
 }
 
@@ -97,8 +116,14 @@ type fcmMessage struct {
 }
 
 type fcmPayload struct {
-	Token string            `json:"token"`
-	Data  map[string]string `json:"data"`
+	Token        string            `json:"token"`
+	Data         map[string]string `json:"data"`
+	Notification *fcmNotification  `json:"notification,omitempty"`
+}
+
+type fcmNotification struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
 }
 
 func (c *FCMClient) SendCallOffer(fcmToken, channelID, fromID, callerName string) error {
@@ -115,6 +140,10 @@ func (c *FCMClient) SendCallOffer(fcmToken, channelID, fromID, callerName string
 				"channel_id":  channelID,
 				"from_id":     fromID,
 				"caller_name": callerName,
+			},
+			Notification: &fcmNotification{
+				Title: "Входящий звонок",
+				Body:  callerName,
 			},
 		},
 	}
