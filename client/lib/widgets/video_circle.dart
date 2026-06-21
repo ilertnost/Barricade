@@ -29,8 +29,6 @@ class _VideoCircleState extends State<VideoCircle> {
   int _backIdx = -1;
   String? _error;
 
-  // Guards against the start/stop race: a quick tap could call stop before
-  // start finished, leaving the camera recording forever.
   Future<void>? _startFuture;
   bool _sending = false;
 
@@ -95,31 +93,9 @@ class _VideoCircleState extends State<VideoCircle> {
   void _switchCam() async {
     if (!_canSwitch || _switching) return;
     setState(() => _switching = true);
-    final wasRecording = _recording;
     try {
-      // If recording, stop current clip and discard it.
-      if (wasRecording) {
-        _ticker?.cancel();
-        try {
-          await _ctrl?.stopVideoRecording();
-        } catch (_) {}
-      }
-      await _ctrl?.dispose();
-      _ctrl = null;
       _camIdx = _camIdx == _frontIdx ? _backIdx : _frontIdx;
-      await _initCamera(_cameras[_camIdx]);
-      // Auto-restart recording after switch.
-      if (wasRecording) {
-        await _ctrl!.startVideoRecording();
-        setState(() {
-          _elapsedMs = 0;
-        });
-        _ticker = Timer.periodic(const Duration(milliseconds: 100), (_) {
-          if (!mounted) return;
-          setState(() => _elapsedMs += 100);
-          if (_elapsedMs >= _maxMs) _stopAndSend();
-        });
-      }
+      await _ctrl!.setDescription(_cameras[_camIdx]);
     } finally {
       if (mounted) setState(() => _switching = false);
     }
@@ -173,7 +149,6 @@ class _VideoCircleState extends State<VideoCircle> {
   }
 
   Future<void> _stopAndSend() async {
-    // Wait for a possibly-still-running start before stopping (race guard).
     if (_startFuture != null) {
       try {
         await _startFuture;
