@@ -51,10 +51,10 @@ class _HomeScreenState extends State<HomeScreen> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.forum_outlined), selectedIcon: Icon(Icons.forum), label: 'Чаты'),
-          NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: 'Контакты'),
-          NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Настройки'),
+        destinations: [
+          NavigationDestination(icon: Icon(Icons.forum_outlined), selectedIcon: Icon(Icons.forum), label: Strings.t('common.chats')),
+          NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: Strings.t('common.contacts')),
+          NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: Strings.t('settings.title')),
         ],
       ),
     );
@@ -147,7 +147,7 @@ class _ChatsTabState extends State<_ChatsTab> {
       setState(() => _channels.removeWhere((c) => c.id == ch.id));
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Не удалось удалить: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(Strings.t('channel.delete_failed').replaceFirst('{error}', '$e'))));
         _load();
       }
     }
@@ -157,14 +157,14 @@ class _ChatsTabState extends State<_ChatsTab> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Удалить чат'),
-        content: Text('Удалить «${ch.name.isEmpty ? 'этот чат' : ch.name}»? Сообщения будут потеряны.'),
+        title: Text(Strings.t('common.delete')),
+        content: Text(Strings.t('channel.delete_confirm').replaceFirst('{name}', ch.name.isEmpty ? 'this chat' : ch.name)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(Strings.t('common.cancel'))),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error),
-            child: const Text('Удалить'),
+            child: Text(Strings.t('common.delete')),
           ),
         ],
       ),
@@ -176,7 +176,7 @@ class _ChatsTabState extends State<_ChatsTab> {
       ch.type == 'dm' ? Icons.person : ch.type == 'group' ? Icons.group : Icons.tag;
 
   String _subtitleFor(Channel ch) =>
-      ch.type == 'dm' ? 'Личные сообщения' : ch.type == 'group' ? 'Группа' : 'Канал';
+      ch.type == 'dm' ? Strings.t('channel.dm') : ch.type == 'group' ? Strings.t('channel.group') : Strings.t('channel.channel');
 
   @override
   Widget build(BuildContext context) {
@@ -312,11 +312,11 @@ class _ContactsTabState extends State<_ContactsTab> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Контакты')),
+      appBar: AppBar(title: Text(Strings.t('common.contacts'))),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _users.isEmpty
-              ? const _EmptyState(icon: Icons.people_outline, text: 'Нет пользователей')
+              ? _EmptyState(icon: Icons.people_outline, text: Strings.t('common.no_users'))
               : RefreshIndicator(
                   onRefresh: _load,
                   child: ListView.builder(
@@ -405,14 +405,14 @@ class GlobalSearchDelegate extends SearchDelegate<void> {
     return ListView(
       children: [
         if (_channels.isNotEmpty) ...[
-          _searchHeader(context, 'Чаты'),
+          _searchHeader(context, Strings.t('common.chats')),
           ..._channels.map((ch) => ListTile(
                 leading: UserAvatar(name: ch.name, radius: 22,
                     fallbackIcon: ch.type == 'guild' ? Icons.campaign : Icons.group),
                 title: Text(ch.name),
                 subtitle: Text([
                   ch.username.isNotEmpty ? '@${ch.username}' : null,
-                  ch.type == 'guild' ? 'Канал' : 'Группа',
+                  ch.type == 'guild' ? Strings.t('channel.channel') : Strings.t('channel.group'),
                 ].whereType<String>().join(' · ')),
                 onTap: () async {
                   // Public → join then open; private (member) → just open.
@@ -426,7 +426,7 @@ class GlobalSearchDelegate extends SearchDelegate<void> {
               )),
         ],
         if (_users.isNotEmpty) ...[
-          _searchHeader(context, 'Пользователи'),
+          _searchHeader(context, Strings.t('common.contacts')),
           ..._users.map((u) => ListTile(
                 leading: UserAvatar(name: u.displayName, avatarId: u.avatarId, radius: 22),
                 title: Text(u.displayName),
@@ -438,7 +438,7 @@ class GlobalSearchDelegate extends SearchDelegate<void> {
               )),
         ],
         if (_searched && _users.isEmpty && _channels.isEmpty)
-          const Center(child: Padding(padding: EdgeInsets.all(32), child: Text('Ничего не найдено'))),
+          Center(child: Padding(padding: EdgeInsets.all(32), child: Text(Strings.t('common.nothing_found')))),
       ],
     );
   }
@@ -514,15 +514,15 @@ class _CreateChannelDialogState extends State<_CreateChannelDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Новый чат'),
+      title: Text(Strings.t('channel.new_chat')),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(value: 'group', label: Text('Группа'), icon: Icon(Icons.group)),
-                ButtonSegment(value: 'guild', label: Text('Канал'), icon: Icon(Icons.campaign)),
+              segments: [
+                ButtonSegment(value: 'group', label: Text(Strings.t('channel.group')), icon: Icon(Icons.group)),
+                ButtonSegment(value: 'guild', label: Text(Strings.t('channel.channel')), icon: Icon(Icons.campaign)),
               ],
               selected: {_type},
               showSelectedIcon: false,
@@ -531,36 +531,36 @@ class _CreateChannelDialogState extends State<_CreateChannelDialog> {
             const SizedBox(height: 10),
             TextField(
               controller: _nameCtrl,
-              decoration: const InputDecoration(labelText: 'Название'),
+              decoration: InputDecoration(labelText: Strings.t('channel.name')),
             ),
             const SizedBox(height: 10),
             TextField(
               controller: _usernameCtrl,
-              decoration: const InputDecoration(
-                labelText: 'username (для поиска)',
-                hintText: 'необязательно',
+              decoration: InputDecoration(
+                labelText: Strings.t('channel.username_search'),
+                hintText: Strings.t('channel.optional'),
                 prefixText: '@',
               ),
             ),
             const SizedBox(height: 10),
             DropdownButtonFormField(
               initialValue: _visibility,
-              decoration: const InputDecoration(labelText: 'Видимость'),
-              items: const [
-                DropdownMenuItem(value: 'public', child: Text('Публичный (виден в поиске)')),
-                DropdownMenuItem(value: 'private', child: Text('Приватный (по приглашению)')),
+              decoration: InputDecoration(labelText: Strings.t('channel.visibility')),
+              items: [
+                DropdownMenuItem(value: 'public', child: Text(Strings.t('channel.public_search'))),
+                DropdownMenuItem(value: 'private', child: Text(Strings.t('channel.private_invite'))),
               ],
               onChanged: (v) => setState(() => _visibility = v!),
             ),
             const SizedBox(height: 12),
             Align(
               alignment: Alignment.centerLeft,
-              child: Text('Добавить участников', style: Theme.of(context).textTheme.labelLarge),
+              child: Text(Strings.t('channel.add_participants'), style: Theme.of(context).textTheme.labelLarge),
             ),
             const SizedBox(height: 6),
             TextField(
               controller: _searchCtrl,
-              decoration: const InputDecoration(hintText: 'Поиск пользователей', prefixIcon: Icon(Icons.search)),
+              decoration: InputDecoration(hintText: Strings.t('channel.search_users_placeholder'), prefixIcon: Icon(Icons.search)),
               onChanged: _search,
             ),
             const SizedBox(height: 8),

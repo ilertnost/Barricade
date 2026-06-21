@@ -53,19 +53,19 @@ class _SettingsBodyState extends State<SettingsBody> {
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Имя пользователя'),
+        title: Text(Strings.t('auth.username')),
         content: TextField(
           controller: ctrl,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             labelText: 'username',
-            hintText: 'минимум 3 символа',
+            hintText: Strings.t('user.min_3_chars'),
             prefixText: '@',
           ),
           autofocus: true,
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: Text(Strings.t('common.cancel'))),
-          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('Сохранить')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: Text(Strings.t('common.save'))),
         ],
       ),
     );
@@ -88,15 +88,15 @@ class _SettingsBodyState extends State<SettingsBody> {
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Профиль'),
+        title: Text(Strings.t('user.profile')),
         content: TextField(
           controller: nameCtrl,
-          decoration: const InputDecoration(labelText: 'Отображаемое имя'),
+          decoration: InputDecoration(labelText: Strings.t('user.display_name')),
           autofocus: true,
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: Text(Strings.t('common.cancel'))),
-          FilledButton(onPressed: () => Navigator.pop(ctx, nameCtrl.text.trim()), child: const Text('Сохранить')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, nameCtrl.text.trim()), child: Text(Strings.t('common.save'))),
         ],
       ),
     );
@@ -142,20 +142,20 @@ class _SettingsBodyState extends State<SettingsBody> {
           ],
           ListTile(
             leading: const Icon(Icons.badge_outlined),
-            title: const Text('Отображаемое имя'),
-            subtitle: const Text('Как вас видят другие'),
+            title: Text(Strings.t('user.display_name')),
+            subtitle: Text(Strings.t('user.display_name_hint')),
             onTap: _editProfile,
           ),
           ListTile(
             leading: const Icon(Icons.alternate_email),
-            title: const Text('Имя пользователя'),
+            title: Text(Strings.t('auth.username')),
             subtitle: Text('@${_me?.username ?? ''}'),
             onTap: _editUsername,
           ),
           const Divider(),
           const _LanguageTile(),
           const Divider(),
-          const _SectionHeader('Оформление'),
+          _SectionHeader(Strings.t('theme.title')),
           const _ThemeModeTile(),
           const _AccentColorTile(),
           const Divider(),
@@ -303,7 +303,7 @@ class _LanguageTile extends StatelessWidget {
     final ctrl = context.watch<LocaleController>();
     return ListTile(
       leading: const Icon(Icons.language),
-      title: const Text('Язык / Language'),
+      title: Text(Strings.t('language.title')),
       trailing: SegmentedButton<String>(
         segments: const [
           ButtonSegment(value: 'ru', label: Text('RU')),
@@ -348,12 +348,12 @@ class _ThemeModeTile extends StatelessWidget {
         children: [
           const Icon(Icons.brightness_6),
           const SizedBox(width: 16),
-          const Expanded(child: Text('Тема')),
+          Expanded(child: Text(Strings.t('theme.theme'))),
           SegmentedButton<ThemeMode>(
-            segments: const [
-              ButtonSegment(value: ThemeMode.system, icon: Icon(Icons.smartphone), tooltip: 'Система'),
-              ButtonSegment(value: ThemeMode.light, icon: Icon(Icons.light_mode), tooltip: 'Светлая'),
-              ButtonSegment(value: ThemeMode.dark, icon: Icon(Icons.dark_mode), tooltip: 'Тёмная'),
+            segments: [
+              ButtonSegment(value: ThemeMode.system, icon: const Icon(Icons.smartphone), tooltip: Strings.t('theme.system')),
+              ButtonSegment(value: ThemeMode.light, icon: const Icon(Icons.light_mode), tooltip: Strings.t('theme.light')),
+              ButtonSegment(value: ThemeMode.dark, icon: const Icon(Icons.dark_mode), tooltip: Strings.t('theme.dark')),
             ],
             selected: {ctrl.mode},
             showSelectedIcon: false,
@@ -377,10 +377,10 @@ class _AccentColorTile extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            children: const [
-              Icon(Icons.palette_outlined),
-              SizedBox(width: 16),
-              Text('Акцент'),
+            children: [
+              const Icon(Icons.palette_outlined),
+              const SizedBox(width: 16),
+              Text(Strings.t('theme.accent')),
             ],
           ),
           const SizedBox(height: 12),

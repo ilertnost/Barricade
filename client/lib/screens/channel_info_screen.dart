@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../l10n/strings.dart';
 import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/audio_player_service.dart';
@@ -44,7 +45,7 @@ class _ChannelInfoScreenState extends State<ChannelInfoScreen> {
     if (mounted) setState(() { _members = members; _loading = false; });
   }
 
-  String get _typeLabel => _channel.isChannel ? 'Канал' : _channel.isGroup ? 'Группа' : 'Личные сообщения';
+  String get _typeLabel => _channel.isChannel ? Strings.t('channel.channel') : _channel.isGroup ? Strings.t('channel.group') : Strings.t('channel.dm');
 
   @override
   Widget build(BuildContext context) {
@@ -53,10 +54,10 @@ class _ChannelInfoScreenState extends State<ChannelInfoScreen> {
       length: 5,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Инфо'),
+          title: Text(Strings.t('info.info')),
           actions: [
             if (_isOwner)
-              IconButton(icon: const Icon(Icons.edit), tooltip: 'Изменить', onPressed: _editSettings),
+              IconButton(icon: const Icon(Icons.edit), tooltip: Strings.t('common.edit'), onPressed: _editSettings),
           ],
         ),
         body: Column(
@@ -76,7 +77,7 @@ class _ChannelInfoScreenState extends State<ChannelInfoScreen> {
                   if (_channel.username.isNotEmpty)
                     Text('@${_channel.username}', style: TextStyle(color: cs.primary)),
                   const SizedBox(height: 2),
-                  Text('$_typeLabel · ${_members.length} участн.',
+                  Text(Strings.t('info.member_count').replaceFirst('{type}', _typeLabel).replaceFirst('{count}', '${_members.length}'),
                       style: TextStyle(color: cs.outline, fontSize: 13)),
                   if (_channel.visibility == 'private')
                     Padding(
@@ -84,21 +85,21 @@ class _ChannelInfoScreenState extends State<ChannelInfoScreen> {
                       child: Row(mainAxisSize: MainAxisSize.min, children: [
                         Icon(Icons.lock, size: 13, color: cs.outline),
                         const SizedBox(width: 4),
-                        Text('Приватный', style: TextStyle(color: cs.outline, fontSize: 12)),
+                        Text(Strings.t('channel.private'), style: TextStyle(color: cs.outline, fontSize: 12)),
                       ]),
                     ),
                 ],
               ),
             ),
-            const TabBar(
+            TabBar(
               isScrollable: true,
               tabAlignment: TabAlignment.center,
               tabs: [
-                Tab(text: 'Медиа'),
-                Tab(text: 'Файлы'),
-                Tab(text: 'Музыка'),
-                Tab(text: 'Ссылки'),
-                Tab(text: 'Участники'),
+                Tab(text: Strings.t('info.media')),
+                Tab(text: Strings.t('info.files')),
+                Tab(text: Strings.t('info.music')),
+                Tab(text: Strings.t('info.links')),
+                Tab(text: Strings.t('info.members')),
               ],
             ),
             Expanded(
@@ -120,7 +121,7 @@ class _ChannelInfoScreenState extends State<ChannelInfoScreen> {
             ? FloatingActionButton.extended(
                 onPressed: _addMember,
                 icon: const Icon(Icons.person_add),
-                label: const Text('Добавить'),
+                label: Text(Strings.t('common.add')),
               )
             : null,
       ),
@@ -134,7 +135,7 @@ class _ChannelInfoScreenState extends State<ChannelInfoScreen> {
       itemCount: _members.length,
       itemBuilder: (_, i) {
         final m = _members[i];
-        final roleLabel = m.role == 'owner' ? 'Владелец' : m.role == 'admin' ? 'Админ' : null;
+        final roleLabel = m.role == 'owner' ? Strings.t('info.owner') : m.role == 'admin' ? Strings.t('info.admin') : null;
         return ListTile(
           leading: UserAvatar(name: m.displayName, avatarId: m.avatarId, radius: 22),
           title: Text(m.displayName),
@@ -158,18 +159,18 @@ class _ChannelInfoScreenState extends State<ChannelInfoScreen> {
             if (_isOwner && m.role == 'member')
               ListTile(
                 leading: const Icon(Icons.shield),
-                title: const Text('Назначить админом'),
+                title: Text(Strings.t('info.make_admin')),
                 onTap: () { Navigator.pop(ctx); _setRole(m, 'admin'); },
               ),
             if (_isOwner && m.role == 'admin')
               ListTile(
                 leading: const Icon(Icons.remove_moderator),
-                title: const Text('Снять админа'),
+                title: Text(Strings.t('info.remove_admin')),
                 onTap: () { Navigator.pop(ctx); _setRole(m, 'member'); },
               ),
             ListTile(
               leading: Icon(Icons.person_remove, color: Theme.of(ctx).colorScheme.error),
-              title: Text('Удалить из чата', style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+              title: Text(Strings.t('info.remove_from_chat'), style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
               onTap: () { Navigator.pop(ctx); _removeMember(m); },
             ),
           ],
@@ -192,7 +193,7 @@ class _ChannelInfoScreenState extends State<ChannelInfoScreen> {
     final ok = await ApiService.addMember(_channel.id, user.id);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(ok ? 'Добавлен: ${user.displayName}' : 'Не удалось добавить')),
+      SnackBar(content: Text(ok ? Strings.t('info.added').replaceFirst('{name}', user.displayName) : Strings.t('info.add_failed'))),
     );
     if (ok) _loadMembers();
   }
@@ -205,28 +206,28 @@ class _ChannelInfoScreenState extends State<ChannelInfoScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setLocal) => AlertDialog(
-          title: const Text('Настройки чата'),
+          title: Text(Strings.t('channel.settings')),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Название')),
+              TextField(controller: nameCtrl, decoration: InputDecoration(labelText: Strings.t('channel.name'))),
               const SizedBox(height: 10),
               TextField(controller: userCtrl, decoration: const InputDecoration(labelText: 'username', prefixText: '@')),
               const SizedBox(height: 10),
               DropdownButtonFormField(
                 initialValue: visibility,
-                decoration: const InputDecoration(labelText: 'Видимость'),
-                items: const [
-                  DropdownMenuItem(value: 'public', child: Text('Публичный')),
-                  DropdownMenuItem(value: 'private', child: Text('Приватный')),
+                decoration: InputDecoration(labelText: Strings.t('channel.visibility')),
+                items: [
+                  DropdownMenuItem(value: 'public', child: Text(Strings.t('channel.public'))),
+                  DropdownMenuItem(value: 'private', child: Text(Strings.t('channel.private'))),
                 ],
                 onChanged: (v) => setLocal(() => visibility = v!),
               ),
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Отмена')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Сохранить')),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(Strings.t('common.cancel'))),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(Strings.t('common.save'))),
           ],
         ),
       ),
@@ -269,7 +270,7 @@ class _MediaGridState extends State<_MediaGrid> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_items.isEmpty) return const _EmptyTab('Нет медиа');
+    if (_items.isEmpty) return _EmptyTab(Strings.t('info.no_media'));
     return GridView.builder(
       padding: const EdgeInsets.all(2),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 2, mainAxisSpacing: 2),
@@ -323,7 +324,7 @@ class _FilesTabState extends State<_FilesTab> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_items.isEmpty) return const _EmptyTab('Нет файлов');
+    if (_items.isEmpty) return _EmptyTab(Strings.t('info.no_files'));
     return ListView.builder(
       itemCount: _items.length,
       itemBuilder: (_, i) => _FileRow(fileId: _items[i].fileId!),
@@ -350,7 +351,7 @@ class _FileRowState extends State<_FileRow> {
   Widget build(BuildContext context) {
     return ListTile(
       leading: CircleAvatar(child: const Icon(Icons.insert_drive_file)),
-      title: Text(_info?.originalName ?? 'Файл', maxLines: 1, overflow: TextOverflow.ellipsis),
+      title: Text(_info?.originalName ?? Strings.t('chat.file'), maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(_info != null ? _size(_info!.size) : '…'),
       onTap: () => FileSaver.openExternally(widget.fileId, _info?.originalName ?? widget.fileId),
       trailing: IconButton(
@@ -387,12 +388,12 @@ class _MusicTabState extends State<_MusicTab> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_items.isEmpty) return const _EmptyTab('Нет музыки');
+    if (_items.isEmpty) return _EmptyTab(Strings.t('info.no_music'));
     // Oldest → newest queue.
     final ordered = _items.reversed.toList();
     final tracks = ordered.map((m) => AudioTrack(
       fileId: m.fileId!,
-      title: m.content.isNotEmpty ? m.content : 'Аудио',
+      title: m.content.isNotEmpty ? m.content : Strings.t('chat.audio'),
       artist: m.senderDisplayName,
     )).toList();
     final audio = context.watch<AudioPlayerService>();
@@ -405,7 +406,7 @@ class _MusicTabState extends State<_MusicTab> {
           leading: CircleAvatar(
             child: Icon(isCurrent && audio.isPlaying ? Icons.pause : Icons.music_note),
           ),
-          title: Text(m.content.isNotEmpty ? m.content : 'Аудио'),
+          title: Text(m.content.isNotEmpty ? m.content : Strings.t('chat.audio')),
           subtitle: Text(m.senderDisplayName),
           onTap: () => audio.playOrToggle(tracks, i),
         );
@@ -442,7 +443,7 @@ class _LinksTabState extends State<_LinksTab> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_links.isEmpty) return const _EmptyTab('Нет ссылок');
+    if (_links.isEmpty) return _EmptyTab(Strings.t('info.no_links'));
     return ListView.builder(
       itemCount: _links.length,
       itemBuilder: (_, i) => ListTile(
@@ -518,13 +519,13 @@ class _UserPickDelegate extends SearchDelegate<User?> {
   @override
   Widget buildSuggestions(BuildContext context) => _list(context);
   Widget _list(BuildContext context) {
-    if (query.isEmpty) return const Center(child: Text('Введите имя'));
+    if (query.isEmpty) return Center(child: Text(Strings.t('common.type_name')));
     return FutureBuilder<List<User>>(
       future: ApiService.getUsers(query: query),
       builder: (ctx, snap) {
         if (!snap.hasData) return const Center(child: CircularProgressIndicator());
         final users = snap.data!;
-        if (users.isEmpty) return const Center(child: Text('Не найдено'));
+        if (users.isEmpty) return Center(child: Text(Strings.t('common.not_found')));
         return ListView(
           children: users.map((u) => ListTile(
             leading: UserAvatar(name: u.displayName, avatarId: u.avatarId, radius: 20),

@@ -198,7 +198,7 @@ class _ChatScreenState extends State<ChatScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Изменить сообщение'),
+        title: Text(Strings.t('chat.edit_message')),
         content: TextField(
           controller: ctrl,
           autofocus: true,
@@ -211,7 +211,7 @@ class _ChatScreenState extends State<ChatScreen> {
               Navigator.pop(ctx);
               ctrl.dispose();
             }
-          }, child: const Text('Сохранить')),
+          }, child: Text(Strings.t('common.save'))),
         ],
       ),
     );
@@ -233,7 +233,7 @@ class _ChatScreenState extends State<ChatScreen> {
         fileId: m.fileId!,
         title: m.content.isNotEmpty
             ? m.content
-            : (isVoice ? 'Голосовое сообщение' : 'Аудио'),
+            : (isVoice ? Strings.t('chat.voice_message') : Strings.t('chat.audio')),
         artist: m.senderDisplayName.isNotEmpty ? m.senderDisplayName : m.senderUsername,
       );
     }).toList();
@@ -264,7 +264,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final ids = files.map((m) => m.fileId!).toList();
     _clearSelection();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Сохраняю ${ids.length} файл(ов)…')),
+      SnackBar(content: Text(Strings.t('chat.saving_files').replaceFirst('{count}', '${ids.length}'))),
     );
     var ok = 0;
     String? lastError;
@@ -279,8 +279,8 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     if (mounted) {
       final msg = ok == ids.length
-          ? 'Сохранено в Загрузки: $ok из ${ids.length}'
-          : 'Сохранено $ok из ${ids.length}. ${lastError ?? ''}';
+          ? Strings.t('chat.saved_to_downloads').replaceFirst('{ok}', '$ok').replaceFirst('{total}', '${ids.length}')
+          : Strings.t('chat.saved_partial').replaceFirst('{ok}', '$ok').replaceFirst('{total}', '${ids.length}').replaceFirst('{error}', lastError ?? '');
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
   }
@@ -297,18 +297,18 @@ class _ChatScreenState extends State<ChatScreen> {
     final single = _selectedIds.length == 1 ? _selectedMessages.first : null;
     return AppBar(
       leading: IconButton(icon: const Icon(Icons.close), onPressed: _clearSelection),
-      title: Text('Выбрано: ${_selectedIds.length}'),
+      title: Text(Strings.t('chat.selected_count').replaceFirst('{count}', '${_selectedIds.length}')),
       actions: [
         if (single != null && single.senderId == ApiService.currentUserId && single.content.isNotEmpty)
-          IconButton(icon: const Icon(Icons.edit), tooltip: 'Изменить', onPressed: () {
+          IconButton(icon: const Icon(Icons.edit), tooltip: Strings.t('common.edit'), onPressed: () {
             final m = single;
             _clearSelection();
             _editMessage(m);
           }),
         if (_anySelectedHasFile)
-          IconButton(icon: const Icon(Icons.download), tooltip: 'Сохранить в Загрузки', onPressed: _saveSelectedToDownloads),
+          IconButton(icon: const Icon(Icons.download), tooltip: Strings.t('common.save_to_downloads'), onPressed: _saveSelectedToDownloads),
         if (_allSelectedOwn)
-          IconButton(icon: const Icon(Icons.delete), tooltip: 'Удалить', onPressed: _deleteSelected),
+          IconButton(icon: const Icon(Icons.delete), tooltip: Strings.t('common.delete'), onPressed: _deleteSelected),
       ],
     );
   }
@@ -326,20 +326,20 @@ class _ChatScreenState extends State<ChatScreen> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final diff = today.difference(d).inDays;
-    if (diff == 0) return 'Сегодня';
-    if (diff == 1) return 'Вчера';
+    if (diff == 0) return Strings.t('chat.date_today');
+    if (diff == 1) return Strings.t('chat.date_yesterday');
     return '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}';
   }
 
   PreferredSizeWidget _chatAppBar() {
     final cs = Theme.of(context).colorScheme;
-    final name = widget.channel.name.isEmpty ? 'Чат' : widget.channel.name;
+    final name = widget.channel.name.isEmpty ? Strings.t('common.chats') : widget.channel.name;
     final typeLabel = widget.channel.type == 'guild'
-        ? 'Канал'
+        ? Strings.t('channel.channel')
         : widget.channel.type == 'dm'
-            ? 'Личные сообщения'
-            : 'Группа';
-    final subtitle = _filterSenderId != null ? 'Фильтр по участнику' : typeLabel;
+            ? Strings.t('channel.dm')
+            : Strings.t('channel.group');
+    final subtitle = _filterSenderId != null ? Strings.t('channel.filter_by_member') : typeLabel;
     return AppBar(
       titleSpacing: 4,
       title: InkWell(
@@ -378,7 +378,7 @@ class _ChatScreenState extends State<ChatScreen> {
         if (_filterSenderId != null)
           IconButton(
             icon: const Icon(Icons.filter_alt_off),
-            tooltip: 'Сбросить фильтр',
+            tooltip: Strings.t('channel.reset_filter'),
             onPressed: () => setState(() => _filterSenderId = null),
           ),
       ],
@@ -398,7 +398,7 @@ class _ChatScreenState extends State<ChatScreen> {
           children: [
             Icon(Icons.campaign, size: 18, color: cs.outline),
             const SizedBox(width: 8),
-            Text('Только админы могут писать', style: TextStyle(color: cs.outline)),
+            Text(Strings.t('channel.only_admin_can_post'), style: TextStyle(color: cs.outline)),
           ],
         ),
       ),
@@ -601,7 +601,7 @@ class _MessageBubble extends StatelessWidget {
                 Text(_time, style: TextStyle(color: textColor.withValues(alpha: 0.6), fontSize: 11)),
                 if (msg.editedAt != null) ...[
                   const SizedBox(width: 4),
-                  Text('изм.', style: TextStyle(color: textColor.withValues(alpha: 0.6), fontSize: 11)),
+                  Text(Strings.t('chat.edited'), style: TextStyle(color: textColor.withValues(alpha: 0.6), fontSize: 11)),
                 ],
                 if (isOwn) ...[const SizedBox(width: 4), _statusIcon(context)],
               ],
@@ -967,8 +967,8 @@ class _AudioContentState extends State<_AudioContent> {
         audio.player.processingState == ProcessingState.loading;
 
     final title = widget.isVoice
-        ? 'Голосовое сообщение'
-        : (_info?.originalName ?? 'Аудио');
+        ? Strings.t('chat.voice_message')
+        : (_info?.originalName ?? Strings.t('chat.audio'));
     final totalDur = Duration(seconds: (_info?.duration ?? 0).round());
 
     return Padding(
@@ -1167,7 +1167,7 @@ class _FileContentState extends State<_FileContent> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final name = _info?.originalName ?? 'Файл';
+    final name = _info?.originalName ?? Strings.t('chat.file');
     final sub = _info != null ? _humanSize(_info!.size) : '…';
     return InkWell(
       onTap: _openFile,
