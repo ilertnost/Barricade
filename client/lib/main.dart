@@ -1,0 +1,128 @@
+import 'package:dynamic_color/dynamic_color.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:just_audio_background/just_audio_background.dart';
+import 'package:provider/provider.dart';
+import 'l10n/strings.dart';
+import 'services/api_service.dart';
+import 'services/ws_service.dart';
+import 'services/theme_controller.dart';
+import 'services/audio_player_service.dart';
+import 'theme/app_theme.dart';
+import 'screens/login_screen.dart';
+import 'screens/home_screen.dart';
+import 'screens/settings_screen.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await JustAudioBackground.init(
+    androidNotificationChannelId: 'com.barricade.audio',
+    androidNotificationChannelName: 'Воспроизведение',
+    androidNotificationOngoing: true,
+  );
+  runApp(const BarricadeApp());
+}
+
+class BarricadeApp extends StatelessWidget {
+  const BarricadeApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AppState()),
+        ChangeNotifierProvider(create: (_) => ThemeController()..load()),
+        ChangeNotifierProvider(create: (_) => AudioPlayerService()),
+        Provider(create: (_) => WsService()),
+      ],
+      child: Consumer<ThemeController>(
+        builder: (context, themeCtrl, _) {
+          return DynamicColorBuilder(
+            builder: (lightDynamic, darkDynamic) {
+              ColorScheme lightScheme;
+              ColorScheme darkScheme;
+              // Follow the device's Material You palette when the user hasn't
+              // picked a custom accent and the platform exposes one.
+              if (themeCtrl.useSystemAccent && lightDynamic != null && darkDynamic != null) {
+                lightScheme = lightDynamic.harmonized();
+                darkScheme = darkDynamic.harmonized();
+              } else {
+                final seed = themeCtrl.seed ?? Colors.indigo;
+                lightScheme = ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.light);
+                darkScheme = ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark);
+              }
+              return MaterialApp(
+                title: Strings.t('app.title'),
+                debugShowCheckedModeBanner: false,
+                locale: const Locale('ru'),
+                supportedLocales: const [Locale('ru'), Locale('en')],
+                localizationsDelegates: const [
+                  GlobalMaterialLocalizations.delegate,
+                  GlobalCupertinoLocalizations.delegate,
+                  GlobalWidgetsLocalizations.delegate,
+                ],
+                theme: buildTheme(lightScheme),
+                darkTheme: buildTheme(darkScheme),
+                themeMode: themeCtrl.mode,
+                home: const AuthGate(),
+                routes: {
+                  '/settings': (_) => const SettingsScreen(),
+                },
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+class AppState extends ChangeNotifier {
+  bool _loggedIn = false;
+  bool get loggedIn => _loggedIn;
+  void setLoggedIn(bool v) { _loggedIn = v; notifyListeners(); }
+}
+
+class AuthGate extends StatefulWidget {
+  const AuthGate({super.key});
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  bool _checking = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAuth();
+  }
+
+  Future<void> _checkAuth() async {
+    final loggedIn = await ApiService.isLoggedIn();
+    if (loggedIn) {
+      try {
+        await ApiService.getMe();
+        if (mounted) context.read<AppState>().setLoggedIn(true);
+      } catch (_) {}
+    }
+    if (mounted) setState(() => _checking = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_checking) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    return Consumer<AppState>(
+      builder: (_, state, __) {
+        if (state.loggedIn) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            context.read<WsService>().connect();
+          });
+          return const HomeScreen();
+        }
+        return LoginScreen(onLogin: () => state.setLoggedIn(true));
+      },
+    );
+  }
+}

@@ -1,0 +1,28 @@
+# Go
+server/barricade-server-arm64
+server/barricade-server
+server/privchat-server-arm64
+server/resetpw
+*.exe
+server/data/
+server/uploads/
+
+# Flutter
+client/build/
+client/.dart_tool/
+client/.packages
+client/.pub/
+client/android/.gradle/
+client/android/local.properties
+client/ios/Pods/
+client/ios/.symlinks/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
