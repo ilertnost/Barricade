@@ -151,14 +151,11 @@ class _VoiceRoomPanelState extends State<_VoiceRoomPanel> {
                       onTap: () => call.toggleDeafen(),
                     ),
                     _ControlButton(
-                      icon: Icons.screen_share,
-                      label: 'Экран',
-                      active: false,
-                      onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Демонстрация экрана будет позже')),
-                        );
-                      },
+                      icon: call.isSharingScreen ? Icons.stop_screen_share : Icons.screen_share,
+                      label: call.isSharingScreen ? 'Стоп' : 'Экран',
+                      active: call.isSharingScreen,
+                      iconColor: call.isSharingScreen ? Colors.green : null,
+                      onTap: () => call.toggleScreenShare(),
                     ),
                     _ControlButton(
                       icon: Icons.call_end,

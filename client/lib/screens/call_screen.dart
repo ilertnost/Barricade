@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 import '../l10n/strings.dart';
@@ -25,6 +27,7 @@ class _CallScreenState extends State<CallScreen> {
   StreamSubscription<List<CallParticipant>>? _sub;
   bool _fullscreen = false;
   final Map<String, RTCVideoRenderer> _renderers = {};
+  final FocusNode _focusNode = FocusNode();
 
   @override
   void initState() {
@@ -41,6 +44,17 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
+  @override
+  void dispose() {
+    context.read<CallService>().removeListener(_onCallStateChanged);
+    _sub?.cancel();
+    _focusNode.dispose();
+    for (final r in _renderers.values) {
+      r.dispose();
+    }
+    super.dispose();
+  }
+
   void _onCallStateChanged() {
     if (!mounted) return;
     final call = context.read<CallService>();
@@ -48,16 +62,6 @@ class _CallScreenState extends State<CallScreen> {
       call.removeListener(_onCallStateChanged);
       Navigator.of(context).pop();
     }
-  }
-
-  @override
-  void dispose() {
-    context.read<CallService>().removeListener(_onCallStateChanged);
-    _sub?.cancel();
-    for (final r in _renderers.values) {
-      r.dispose();
-    }
-    super.dispose();
   }
 
   RTCVideoRenderer _rendererFor(String userId, MediaStream? stream) {
@@ -73,13 +77,35 @@ class _CallScreenState extends State<CallScreen> {
 
   void _toggleFullscreen() => setState(() => _fullscreen = !_fullscreen);
 
+  void _exitFullscreen() {
+    if (_fullscreen) setState(() => _fullscreen = false);
+  }
+
+  void _onKeyEvent(KeyEvent event) {
+    if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.escape) {
+      _exitFullscreen();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final call = context.watch<CallService>();
 
-    return Scaffold(
+    Widget body;
+    if (call.isPeerSharing || call.isSharingScreen || _fullscreen) {
+      body = _buildScreenShareView(call);
+    } else {
+      body = Column(
+        children: [
+          Expanded(child: _buildVideoGrid(call)),
+          _buildControls(call),
+        ],
+      );
+    }
+
+    final scaffold = Scaffold(
       backgroundColor: Colors.black,
-      appBar: _fullscreen
+      appBar: _fullscreen || call.isPeerSharing
           ? null
           : AppBar(
               backgroundColor: Colors.black87,
@@ -106,13 +132,134 @@ class _CallScreenState extends State<CallScreen> {
                 ),
               ],
             ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(child: _buildVideoGrid(call)),
-            _buildControls(call),
-          ],
+      body: SafeArea(child: body),
+    );
+
+    if (!Platform.isAndroid) {
+      return KeyboardListener(
+        focusNode: _focusNode,
+        autofocus: true,
+        onKeyEvent: _onKeyEvent,
+        child: scaffold,
+      );
+    }
+    return scaffold;
+  }
+
+  Widget _buildScreenShareView(CallService call) {
+    // Determine which stream to show:
+    // - If local user is sharing, show the screen capture stream.
+    // - If a remote peer is sharing, show that peer's video (replaceTrack).
+    final isLocalSharing = call.isSharingScreen;
+    final remoteSharerId = call.sharingPeerId;
+
+    MediaStream? videoStream;
+    String sharerName;
+    if (isLocalSharing) {
+      videoStream = call.screenStream;
+      sharerName = 'Вы';
+    } else if (remoteSharerId != null) {
+      final participant = call.participants.where((p) => p.userId == remoteSharerId).firstOrNull;
+      sharerName = participant?.displayName ?? remoteSharerId;
+      videoStream = participant?.stream;
+    } else {
+      sharerName = '';
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Main video
+        if (videoStream != null)
+          RTCVideoView(
+            _rendererFor('_screen_share', videoStream),
+            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+          )
+        else
+          const Center(
+            child: CircularProgressIndicator(color: Colors.white),
+          ),
+        // Top banner
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            color: Colors.black54,
+            child: Row(
+              children: [
+                const Icon(Icons.screen_share, color: Colors.green, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    isLocalSharing
+                        ? 'Демонстрация экрана'
+                        : '$sharerName демонстрирует экран',
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                  ),
+                ),
+                if (!_fullscreen)
+                  IconButton(
+                    icon: const Icon(Icons.fullscreen, color: Colors.white, size: 20),
+                    onPressed: _toggleFullscreen,
+                    visualDensity: VisualDensity.compact,
+                  ),
+              ],
+            ),
+          ),
         ),
+        // Bottom controls
+        if (!_fullscreen)
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: _buildScreenShareControls(call, isLocalSharing),
+          ),
+        // Close button (Android — exit fullscreen)
+        if (!Platform.isAndroid && _fullscreen)
+          Positioned(
+            top: 8,
+            right: 8,
+            child: IconButton(
+              icon: const Icon(Icons.close, color: Colors.white, size: 28),
+              onPressed: _exitFullscreen,
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildScreenShareControls(CallService call, bool isLocalSharing) {
+    return Container(
+      color: Colors.black87,
+      padding: const EdgeInsets.only(bottom: 32, top: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _CtrlBtn(
+            icon: call.muted ? Icons.mic_off : Icons.mic,
+            color: call.muted ? Colors.red : Colors.white,
+            onTap: call.toggleMute,
+          ),
+          if (isLocalSharing)
+            _CtrlBtn(
+              icon: Icons.stop_screen_share,
+              color: Colors.red,
+              onTap: () => call.toggleScreenShare(),
+            ),
+          _CtrlBtn(
+            icon: Icons.call_end,
+            color: Colors.red,
+            onTap: () => call.endCall(),
+          ),
+          _CtrlBtn(
+            icon: Icons.fullscreen_exit,
+            color: Colors.white,
+            onTap: _toggleFullscreen,
+          ),
+        ],
       ),
     );
   }
@@ -187,6 +334,11 @@ class _CallScreenState extends State<CallScreen> {
             icon: call.videoEnabled ? Icons.videocam : Icons.videocam_off,
             color: call.videoEnabled ? Colors.white : Colors.red,
             onTap: call.toggleVideo,
+          ),
+          _CtrlBtn(
+            icon: call.isSharingScreen ? Icons.stop_screen_share : Icons.screen_share,
+            color: call.isSharingScreen ? Colors.green : Colors.white,
+            onTap: () => call.toggleScreenShare(),
           ),
           _CtrlBtn(
             icon: Icons.call_end,

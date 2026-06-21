@@ -106,6 +106,10 @@ class CallService extends ChangeNotifier {
   bool get videoEnabled => _videoEnabled;
   bool get inCall => _state == CallState.connected || _state == CallState.ringing;
   bool get isDm => _isDm;
+  bool get isSharingScreen => _isSharingScreen;
+  bool get isPeerSharing => _sharingPeerId != null;
+  String? get sharingPeerId => _sharingPeerId;
+  MediaStream? get screenStream => _screenStream;
 
   IncomingCallInfo? _incomingCall;
   IncomingCallInfo? get incomingCall => _incomingCall;
@@ -120,6 +124,12 @@ class CallService extends ChangeNotifier {
   Set<String> get voiceParticipants => Set.unmodifiable(_voiceParticipants);
   bool get inVoiceRoom => _inVoiceRoom;
   String? get voiceChannelId => _voiceChannelId;
+
+  // Screen sharing
+  MediaStream? _screenStream;
+  bool _isSharingScreen = false;
+  String? _sharingPeerId;
+  final Map<String, RTCRtpSender> _videoSenders = {};
 
   RTCSessionDescription? _pendingOfferSdp;
   String? _pendingCallerId;
@@ -262,7 +272,10 @@ class CallService extends ChangeNotifier {
 
     if (_localStream != null) {
       for (final track in _localStream!.getTracks()) {
-        pc.addTrack(track, _localStream!);
+        final sender = await pc.addTrack(track, _localStream!);
+        if (sender != null && track.kind == 'video') {
+          _videoSenders[callerId] = sender;
+        }
       }
     }
 
@@ -302,7 +315,10 @@ class CallService extends ChangeNotifier {
 
     if (_localStream != null) {
       for (final track in _localStream!.getTracks()) {
-        pc.addTrack(track, _localStream!);
+        final sender = await pc.addTrack(track, _localStream!);
+        if (sender != null && track.kind == 'video') {
+          _videoSenders[peerId] = sender;
+        }
       }
     }
 
@@ -312,7 +328,102 @@ class CallService extends ChangeNotifier {
     _ws.sendWebRTC(channelId, 'offer', jsonEncode(sdp.toMap()), peerId);
   }
 
-  // ── Voice room methods ──
+  // ── Screen sharing ──
+
+  Future<void> startScreenShare() async {
+    if (_isSharingScreen) return;
+    if (_voiceChannelId != null) return;
+
+    try {
+      final constraints = <String, dynamic>{
+        'video': {
+          'width': {'ideal': 1920},
+          'height': {'ideal': 1080},
+          'frameRate': {'ideal': 60},
+        },
+        'audio': false,
+      };
+      _screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
+    } catch (e) {
+      debugPrint('startScreenShare getDisplayMedia error: $e');
+      return;
+    }
+
+    _isSharingScreen = true;
+
+    final screenTrack = _screenStream!.getVideoTracks().firstOrNull;
+    if (screenTrack == null) {
+      _isSharingScreen = false;
+      _screenStream?.dispose();
+      _screenStream = null;
+      return;
+    }
+
+    // Replace video track in all peer connections via replaceTrack (no ICE restart).
+    for (final entry in _connections.entries) {
+      final sender = _videoSenders[entry.key];
+      if (sender != null) {
+        try {
+          await sender.replaceTrack(screenTrack);
+        } catch (e) {
+          debugPrint('replaceTrack error for ${entry.key}: $e');
+        }
+      }
+    }
+
+    // Notify all peers.
+    for (final peerId in _connections.keys) {
+      if (_channelId != null) {
+        _ws.sendWebRTC(_channelId!, 'screen_share_change', {'sharing': true}, peerId);
+      }
+    }
+
+    _updateParticipants();
+    notifyListeners();
+  }
+
+  Future<void> stopScreenShare() async {
+    if (!_isSharingScreen) return;
+
+    // Restore camera video track.
+    final cameraTrack = _localStream?.getVideoTracks().firstOrNull;
+    if (cameraTrack != null) {
+      for (final entry in _connections.entries) {
+        final sender = _videoSenders[entry.key];
+        if (sender != null) {
+          try {
+            await sender.replaceTrack(cameraTrack);
+          } catch (e) {
+            debugPrint('replaceTrack restore error for ${entry.key}: $e');
+          }
+        }
+      }
+    }
+
+    // Stop and dispose screen stream.
+    _screenStream?.getTracks().forEach((t) => t.stop());
+    _screenStream?.dispose();
+    _screenStream = null;
+    _isSharingScreen = false;
+
+    // Notify all peers.
+    for (final peerId in _connections.keys) {
+      if (_channelId != null) {
+        _ws.sendWebRTC(_channelId!, 'screen_share_change', {'sharing': false}, peerId);
+      }
+    }
+
+    _updateParticipants();
+    notifyListeners();
+  }
+
+  Future<void> toggleScreenShare() async {
+    if (_isSharingScreen) {
+      await stopScreenShare();
+    } else {
+      await startScreenShare();
+    }
+  }
 
   Future<void> joinVoiceRoom(String channelId) async {
     if (_inVoiceRoom) return;
@@ -485,11 +596,14 @@ class CallService extends ChangeNotifier {
             );
             _voiceConnections[fromId] = pc;
             await pc.setRemoteDescription(sdp);
-            if (_localStream != null) {
-              for (final track in _localStream!.getTracks()) {
-                pc.addTrack(track, _localStream!);
-              }
+        if (_localStream != null) {
+          for (final track in _localStream!.getTracks()) {
+            final sender = await pc.addTrack(track, _localStream!);
+            if (sender != null && track.kind == 'video') {
+              _videoSenders[fromId] = sender;
             }
+          }
+        }
             final answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
             _ws.sendWebRTC(_voiceChannelId!, 'answer', jsonEncode(answer.toMap()), fromId);
@@ -565,6 +679,15 @@ class CallService extends ChangeNotifier {
         final pc = _connections[fromId] ?? _voiceConnections[fromId];
         await pc?.addCandidate(candidate);
 
+      case 'screen_share_change':
+        final sharing = (payload['data'] as Map<String, dynamic>?)?['sharing'] as bool? ?? false;
+        if (sharing) {
+          _sharingPeerId = fromId;
+        } else {
+          _sharingPeerId = null;
+        }
+        notifyListeners();
+
       case 'end_call':
         _playDisconnect();
         _resetAll();
@@ -590,6 +713,12 @@ class CallService extends ChangeNotifier {
     _pendingOfferSdp = null;
     _pendingCallerId = null;
     _pendingCallerDisplayName = '';
+    _screenStream?.getTracks().forEach((t) => t.stop());
+    _screenStream?.dispose();
+    _screenStream = null;
+    _isSharingScreen = false;
+    _sharingPeerId = null;
+    _videoSenders.clear();
     for (final e in _connections.entries) {
       e.value.close();
     }
@@ -604,6 +733,12 @@ class CallService extends ChangeNotifier {
   }
 
   void _cleanupConnections() {
+    _screenStream?.getTracks().forEach((t) => t.stop());
+    _screenStream?.dispose();
+    _screenStream = null;
+    _isSharingScreen = false;
+    _sharingPeerId = null;
+    _videoSenders.clear();
     for (final e in _connections.entries) {
       e.value.close();
     }
@@ -679,6 +814,7 @@ class CallService extends ChangeNotifier {
       await _connections[userId]?.close();
       _connections.remove(userId);
       _remoteStreams.remove(userId);
+      _videoSenders.remove(userId);
       if (_connections.isEmpty) {
         _resetAll();
       }
@@ -697,6 +833,13 @@ class CallService extends ChangeNotifier {
   }
 
   Future<void> endCall() async {
+    if (_isSharingScreen) {
+      _screenStream?.getTracks().forEach((t) => t.stop());
+      _screenStream?.dispose();
+      _screenStream = null;
+      _isSharingScreen = false;
+      _sharingPeerId = null;
+    }
     if (_channelId != null) {
       for (final e in _connections.entries) {
         _ws.sendWebRTC(_channelId!, 'end_call', {}, e.key);
@@ -805,6 +948,8 @@ class CallService extends ChangeNotifier {
     _tonePlayer.dispose();
     _participantsCtrl.close();
     _voiceParticipantCtrl.close();
+    _screenStream?.dispose();
+    _screenStream = null;
     if (_inVoiceRoom) leaveVoiceRoom();
     endCall();
     super.dispose();
