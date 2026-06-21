@@ -1,7 +1,10 @@
+import 'dart:io' show Platform;
+
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:just_audio_background/just_audio_background.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'l10n/strings.dart';
 import 'services/api_service.dart';
@@ -23,6 +26,9 @@ void main() async {
     androidNotificationChannelName: 'Воспроизведение',
     androidNotificationOngoing: true,
   );
+  if (Platform.isAndroid) {
+    await Permission.notification.request();
+  }
   runApp(const BarricadeApp());
 }
 

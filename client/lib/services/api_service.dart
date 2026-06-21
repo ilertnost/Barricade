@@ -148,6 +148,16 @@ class ApiService {
     return (list as List).map((e) => Member.fromJson(e)).toList();
   }
 
+  static Future<Channel?> findExistingDm(List<Channel> channels, String peerId) async {
+    for (final ch in channels.where((c) => c.type == 'dm')) {
+      try {
+        final members = await getMembers(ch.id);
+        if (members.any((m) => m.id == peerId)) return ch;
+      } catch (_) {}
+    }
+    return null;
+  }
+
   static Future<List<Message>> getChannelMedia(String channelId, String kind, {String? before}) async {
     final uri = Uri.parse('${Config.serverUrl}/api/channels/$channelId/media')
         .replace(queryParameters: {'kind': kind, if (before != null) 'before': before});

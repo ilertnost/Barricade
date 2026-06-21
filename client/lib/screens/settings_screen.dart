@@ -489,14 +489,13 @@ class UserSearchDialog extends SearchDelegate<User> {
     if (target.id == me.id) return;
     try {
       final channels = await ApiService.getChannels();
-      final existing = channels.where((ch) =>
-        ch.type == 'dm' && (ch.name.contains(me.id) || ch.name.contains(target.id)));
-      if (existing.isNotEmpty) {
+      final existing = await ApiService.findExistingDm(channels, target.id);
+      if (existing != null) {
         if (context.mounted) {
           close(context, target);
           Navigator.push(context, MaterialPageRoute(
             builder: (_) => ChatScreen(
-              channel: existing.first,
+              channel: existing,
             ),
           ));
         }

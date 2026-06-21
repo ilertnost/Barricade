@@ -5,6 +5,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'api_service.dart';
 import 'ws_service.dart';
+import 'platform_call_service.dart';
 
 class IncomingCallInfo {
   final String fromId;
@@ -37,16 +38,37 @@ class CallParticipant {
 
 enum CallState { idle, ringing, connected }
 
+class CallLogEntry {
+  final String peerId;
+  final String peerName;
+  final DateTime timestamp;
+  final bool isIncoming;
+  final bool answered;
+  final int durationSec;
+
+  CallLogEntry({
+    required this.peerId,
+    required this.peerName,
+    required this.timestamp,
+    required this.isIncoming,
+    required this.answered,
+    this.durationSec = 0,
+  });
+}
+
 class CallService extends ChangeNotifier {
   final WsService _ws;
   final AudioPlayer _ringPlayer = AudioPlayer();
   final AudioPlayer _tonePlayer = AudioPlayer();
+  final List<CallLogEntry> _callLog = [];
 
   CallService(this._ws) {
     _ws.addListener(onWsMessage);
     _ringPlayer.setReleaseMode(ReleaseMode.loop);
-    _ringPlayer.setVolume(0.5);
+    _ringPlayer.setVolume(1.0);
   }
+
+  List<CallLogEntry> get callLog => List.unmodifiable(_callLog);
 
   CallState _state = CallState.idle;
   String? _channelId;
@@ -59,12 +81,18 @@ class CallService extends ChangeNotifier {
   final Map<String, MediaStream> _remoteStreams = {};
   final Map<String, double> _volumes = {};
   final List<CallParticipant> _participants = [];
+  int _callStartTimestamp = 0;
+  String? _callPeerId;
+  String _callPeerName = '';
+  bool _callIsIncoming = false;
 
   final _participantsCtrl = StreamController<List<CallParticipant>>.broadcast();
   Stream<List<CallParticipant>> get participantStream => _participantsCtrl.stream;
   List<CallParticipant> get participants => List.unmodifiable(_participants);
   CallState get state => _state;
   String? get channelId => _channelId;
+  String? get callPeerId => _callPeerId;
+  String get callPeerName => _callPeerName;
   bool get muted => _muted;
   bool get videoEnabled => _videoEnabled;
   bool get inCall => _state == CallState.connected || _state == CallState.ringing;
@@ -111,7 +139,11 @@ class CallService extends ChangeNotifier {
     _channelId = channelId;
     _isDm = peerIds.length == 1;
     _state = CallState.ringing;
+    _callPeerId = peerIds.first;
+    _callPeerName = peerIds.first;
+    _callIsIncoming = false;
     _playRingback();
+    PlatformCallService.startCallService();
     notifyListeners();
 
     await initLocalMedia(video: video);
@@ -120,14 +152,11 @@ class CallService extends ChangeNotifier {
     for (final peerId in peerIds) {
       await _connectToPeer(peerId, channelId);
     }
-
-    _state = CallState.connected;
-    _stopRings();
-    notifyListeners();
   }
 
   Future<void> answerIncomingCall() async {
     _stopRings();
+    PlatformCallService.cancelIncomingNotification();
     final callerId = _pendingCallerId;
     final sdp = _pendingOfferSdp;
     if (callerId == null || sdp == null || _channelId == null) return;
@@ -137,6 +166,8 @@ class CallService extends ChangeNotifier {
     _pendingCallerId = null;
 
     _state = CallState.connected;
+    _callStartTimestamp = DateTime.now().millisecondsSinceEpoch;
+    PlatformCallService.startCallService();
     notifyListeners();
 
     if (_localStream == null) {
@@ -162,13 +193,18 @@ class CallService extends ChangeNotifier {
 
   Future<void> declineIncomingCall() async {
     _stopRings();
+    PlatformCallService.cancelIncomingNotification();
     final callerId = _pendingCallerId;
     final chId = _channelId;
+    if (callerId != null) {
+      _logCall(callerId, _pendingCallerDisplayName, true, false);
+    }
     _incomingCall = null;
     _pendingOfferSdp = null;
     _pendingCallerId = null;
     _channelId = null;
     _state = CallState.idle;
+    PlatformCallService.stopCallService();
     notifyListeners();
     if (callerId != null && chId != null) {
       _ws.sendWebRTC(chId, 'end_call', {}, callerId);
@@ -226,13 +262,23 @@ class CallService extends ChangeNotifier {
           fromDisplayName: _pendingCallerDisplayName,
         );
         _state = CallState.ringing;
+        _callPeerId = fromId;
+        _callPeerName = _pendingCallerDisplayName;
+        _callIsIncoming = true;
         _playIncomingRing();
+        PlatformCallService.showIncomingCall(_pendingCallerDisplayName, fromId);
         notifyListeners();
 
       case 'answer':
         final sdpMap = jsonDecode(payload['data'] as String) as Map<String, dynamic>;
         final sdp = RTCSessionDescription(sdpMap['sdp'] as String, sdpMap['type'] as String);
         await _connections[fromId]?.setRemoteDescription(sdp);
+        if (_state == CallState.ringing) {
+          _state = CallState.connected;
+          _callStartTimestamp = DateTime.now().millisecondsSinceEpoch;
+          _stopRings();
+          notifyListeners();
+        }
 
       case 'candidate':
         final cand = (payload['data'] as Map<String, dynamic>?) ?? {};
@@ -250,6 +296,17 @@ class CallService extends ChangeNotifier {
   }
 
   void _resetAll() {
+    PlatformCallService.cancelIncomingNotification();
+    PlatformCallService.stopCallService();
+    if (_callPeerId != null && _callStartTimestamp > 0) {
+      _logCall(_callPeerId!, _callPeerName, _callIsIncoming, true);
+    } else if (_callPeerId != null) {
+      _logCall(_callPeerId!, _callPeerName, _callIsIncoming, false);
+    }
+    _callPeerId = null;
+    _callPeerName = '';
+    _callIsIncoming = false;
+    _callStartTimestamp = 0;
     _state = CallState.idle;
     _channelId = null;
     _incomingCall = null;
@@ -343,10 +400,12 @@ class CallService extends ChangeNotifier {
   }
 
   void _playRingback() {
+    Helper.setSpeakerphoneOn(true);
     _ringPlayer.play(AssetSource('sounds/ringback.wav'));
   }
 
   void _playIncomingRing() {
+    Helper.setSpeakerphoneOn(true);
     _ringPlayer.play(AssetSource('sounds/incoming.wav'));
   }
 
@@ -356,6 +415,22 @@ class CallService extends ChangeNotifier {
 
   void _stopRings() {
     _ringPlayer.stop();
+  }
+
+  void _logCall(String peerId, String peerName, bool isIncoming, bool answered) {
+    final durationSec = _callStartTimestamp > 0
+        ? (DateTime.now().millisecondsSinceEpoch - _callStartTimestamp) ~/ 1000
+        : 0;
+    _callLog.insert(0, CallLogEntry(
+      peerId: peerId,
+      peerName: peerName,
+      timestamp: DateTime.now(),
+      isIncoming: isIncoming,
+      answered: answered,
+      durationSec: durationSec,
+    ));
+    _callStartTimestamp = 0;
+    notifyListeners();
   }
 
   Future<void> toggleMute() async {
@@ -382,6 +457,7 @@ class CallService extends ChangeNotifier {
 
   @override
   void dispose() {
+    PlatformCallService.stopCallService();
     _ringPlayer.dispose();
     _tonePlayer.dispose();
     _participantsCtrl.close();

@@ -11,21 +11,30 @@ import (
 	"github.com/google/uuid"
 )
 
+type pendingOfferEntry struct {
+	targetID string
+	msg      OutgoingMessage
+}
+
 type Hub struct {
-	DB        *db.DB
-	clients   map[string]*Client
-	channels  map[string]map[string]*Client
-	Register  chan *Client
-	Unregister chan *Client
+	DB              *db.DB
+	clients         map[string]*Client
+	channels        map[string]map[string]*Client
+	Register        chan *Client
+	Unregister      chan *Client
+	pendingOffers   map[string]OutgoingMessage
+	pendingOfferReq chan pendingOfferEntry
 }
 
 func NewHub(database *db.DB) *Hub {
 	return &Hub{
-		DB:         database,
-		clients:    make(map[string]*Client),
-		channels:   make(map[string]map[string]*Client),
-		Register:   make(chan *Client),
-		Unregister: make(chan *Client),
+		DB:              database,
+		clients:         make(map[string]*Client),
+		channels:        make(map[string]map[string]*Client),
+		Register:        make(chan *Client),
+		Unregister:      make(chan *Client),
+		pendingOffers:   make(map[string]OutgoingMessage),
+		pendingOfferReq: make(chan pendingOfferEntry, 64),
 	}
 }
 
@@ -34,6 +43,11 @@ func (h *Hub) Run() {
 		select {
 		case client := <-h.Register:
 			h.clients[client.UserID] = client
+			if offer, ok := h.pendingOffers[client.UserID]; ok {
+				log.Printf("delivering pending offer to user %s", client.Username)
+				client.SendJSON(offer)
+				delete(h.pendingOffers, client.UserID)
+			}
 			log.Printf("user %s connected", client.Username)
 			go h.broadcastPresence(client.UserID, true)
 
@@ -48,6 +62,9 @@ func (h *Hub) Run() {
 				h.broadcastPresence(client.UserID, false)
 			}()
 			log.Printf("user %s disconnected", client.Username)
+
+		case entry := <-h.pendingOfferReq:
+			h.pendingOffers[entry.targetID] = entry.msg
 		}
 	}
 }
@@ -302,16 +319,30 @@ func (h *Hub) handleWebRTC(client *Client, payload json.RawMessage) {
 		client.SendError("invalid webrtc payload")
 		return
 	}
+	msg := OutgoingMessage{
+		Type: "webrtc",
+		Payload: map[string]interface{}{
+			"channel_id": p.ChannelID,
+			"type":       p.Type,
+			"data":       p.Data,
+			"from_id":    client.UserID,
+		},
+	}
+	if p.Type != "offer" {
+		// Only pending-offer on disconnect makes sense; other types (answer, candidate, end_call)
+		// are only meaningful when the target is connected.
+		if target, ok := h.clients[p.TargetID]; ok {
+			target.SendJSON(msg)
+		}
+		return
+	}
+	// For offers: check if target is online first, then try direct send.
+	// If target is not in clients map, store via the serialized channel.
 	if target, ok := h.clients[p.TargetID]; ok {
-		target.SendJSON(OutgoingMessage{
-			Type: "webrtc",
-			Payload: map[string]interface{}{
-				"channel_id": p.ChannelID,
-				"type":       p.Type,
-				"data":       p.Data,
-				"from_id":    client.UserID,
-			},
-		})
+		target.SendJSON(msg)
+	} else {
+		h.pendingOfferReq <- pendingOfferEntry{targetID: p.TargetID, msg: msg}
+		log.Printf("stored pending offer for user %s", p.TargetID)
 	}
 }
 

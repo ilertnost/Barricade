@@ -8,6 +8,7 @@ import '../services/call_service.dart';
 import '../services/locale_controller.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
+import 'call_screen.dart';
 import 'settings_screen.dart';
 import 'incoming_call_screen.dart';
 
@@ -19,7 +20,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _index = 0;
   User? _me;
   OverlayEntry? _callBanner;
@@ -27,6 +28,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadMe();
   }
 
@@ -38,9 +40,32 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _callBanner?.remove();
     context.read<CallService>().removeListener(_onCallStateChanged);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final ws = context.read<WsService>();
+        if (!ws.isConnected) ws.connect();
+
+        final call = context.read<CallService>();
+        if (call.state == CallState.connected && call.channelId != null && call.callPeerId != null) {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(
+            channelId: call.channelId!,
+            peerIds: [call.callPeerId!],
+          )));
+        } else if (call.state == CallState.ringing && call.incomingCall != null) {
+          _hideCallBanner();
+          _showCallBanner();
+        }
+      });
+    }
   }
 
   void _onCallStateChanged() {
@@ -53,7 +78,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showCallBanner() {
-    if (_callBanner != null) return;
+    _callBanner?.remove();
     _callBanner = OverlayEntry(
       builder: (_) => const IncomingCallFullscreen(),
     );
@@ -72,7 +97,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {}
   }
 
-  void _goToSettings() => setState(() => _index = 2);
+  void _goToSettings() => setState(() => _index = 3);
 
   @override
   Widget build(BuildContext context) {
@@ -83,6 +108,7 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           _ChatsTab(me: _me, onProfileTap: _goToSettings),
           _ContactsTab(),
+          _CallLogTab(),
           SettingsScreen(),
         ],
       ),
@@ -92,6 +118,7 @@ class _HomeScreenState extends State<HomeScreen> {
         destinations: [
           NavigationDestination(icon: Icon(Icons.forum_outlined), selectedIcon: Icon(Icons.forum), label: Strings.t('common.chats')),
           NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: Strings.t('common.contacts')),
+          NavigationDestination(icon: Icon(Icons.history), selectedIcon: Icon(Icons.history), label: 'Звонки'),
           NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: Strings.t('settings.title')),
         ],
       ),
@@ -386,33 +413,48 @@ class _ContactsTabState extends State<_ContactsTab> {
 
   Future<void> _load() async {
     try {
-      final users = await ApiService.getUsers();
-      if (mounted) setState(() { _users = users; _loading = false; });
+      final me = await ApiService.getMe();
+      final all = await ApiService.getUsers();
+      if (mounted) setState(() { _users = all.where((u) => u.id != me.id).toList(); _loading = false; });
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<Channel> _resolveDmChannel(User target) async {
+    final channels = await ApiService.getChannels();
+    final existing = await ApiService.findExistingDm(channels, target.id);
+    if (existing != null) return existing;
+    return await ApiService.createChannel(
+      target.displayName.isNotEmpty ? target.displayName : target.username, 'dm', [target.id]);
   }
 
   Future<void> _openDm(User target) async {
     try {
       final me = await ApiService.getMe();
       if (target.id == me.id) return;
-      final channels = await ApiService.getChannels();
-      final existing = channels.where((ch) =>
-          ch.type == 'dm' && (ch.name.contains(me.id) || ch.name.contains(target.id)));
-      Channel ch;
-      if (existing.isNotEmpty) {
-        ch = existing.first;
-      } else {
-        ch = await ApiService.createChannel(
-          target.displayName.isNotEmpty ? target.displayName : target.username, 'dm', [target.id]);
-      }
+      final ch = await _resolveDmChannel(target);
       if (mounted) {
         Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(channel: ch)));
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Ошибка открытия чата: $e')));
+      }
+    }
+  }
+
+  Future<void> _callUser(User target) async {
+    try {
+      final me = await ApiService.getMe();
+      if (target.id == me.id) return;
+      final ch = await _resolveDmChannel(target);
+      if (mounted) {
+        Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(channelId: ch.id, peerIds: [target.id], video: false)));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Ошибка: $e')));
       }
     }
   }
@@ -470,12 +512,76 @@ class _ContactsTabState extends State<_ContactsTab> {
                                   ? _formatLastSeen(u.lastSeen!)
                                   : u.atUsername,
                         ),
-                        trailing: const Icon(Icons.chat_bubble_outline, size: 18),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.call_outlined, size: 18),
+                              onPressed: () => _callUser(u),
+                              tooltip: 'Позвонить',
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                              onPressed: () => _openDm(u),
+                              tooltip: 'Написать',
+                            ),
+                          ],
+                        ),
                         onTap: () => _openDm(u),
                       );
                     },
                   ),
                 ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Недавние звонки
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _CallLogTab extends StatefulWidget {
+  const _CallLogTab();
+
+  @override
+  State<_CallLogTab> createState() => _CallLogTabState();
+}
+
+class _CallLogTabState extends State<_CallLogTab> {
+  @override
+  Widget build(BuildContext context) {
+    final call = context.watch<CallService>();
+    final log = call.callLog;
+    final cs = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Недавние звонки')),
+      body: log.isEmpty
+          ? _EmptyState(
+              icon: Icons.history,
+              text: 'Нет истории звонков',
+              hint: 'Позвоните кому-нибудь из контактов',
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              itemCount: log.length,
+              itemBuilder: (_, i) {
+                final entry = log[i];
+                final icon = entry.isIncoming
+                    ? (entry.answered ? Icons.call_received : Icons.call_missed)
+                    : Icons.call_made;
+                final color = entry.answered
+                    ? null
+                    : cs.error;
+                return ListTile(
+                  leading: Icon(icon, color: color, size: 24),
+                  title: Text(entry.peerName, style: TextStyle(color: color)),
+                  subtitle: Text(
+                    '${entry.timestamp.hour.toString().padLeft(2, '0')}:${entry.timestamp.minute.toString().padLeft(2, '0')}'
+                    '${entry.durationSec > 0 ? ' · ${entry.durationSec}с' : ''}',
+                  ),
+                );
+              },
+            ),
     );
   }
 }
@@ -595,11 +701,10 @@ class GlobalSearchDelegate extends SearchDelegate<void> {
       final me = await ApiService.getMe();
       if (target.id == me.id) return;
       final channels = await ApiService.getChannels();
-      final existing = channels.where((ch) =>
-          ch.type == 'dm' && (ch.name.contains(me.id) || ch.name.contains(target.id)));
-      if (existing.isNotEmpty) {
+      final existing = await ApiService.findExistingDm(channels, target.id);
+      if (existing != null) {
         if (context.mounted) {
-          Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(channel: existing.first)));
+          Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(channel: existing)));
         }
         return;
       }

@@ -8,15 +8,18 @@ import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import android.content.Intent
+import android.os.Bundle
 
 // just_audio_background requires the host Activity to extend AudioServiceActivity
 // (it provides the cached FlutterEngine that audio_service needs).
 class MainActivity : AudioServiceActivity() {
-    private val channelName = "barricade/downloads"
+    private val downloadsChannel = "barricade/downloads"
+    private val callChannel = "barricade/call"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, downloadsChannel)
             .setMethodCallHandler { call, result ->
                 if (call.method == "saveToDownloads") {
                     val path = call.argument<String>("path")
@@ -36,6 +39,41 @@ class MainActivity : AudioServiceActivity() {
                     result.notImplemented()
                 }
             }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, callChannel)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "startCallService" -> {
+                        CallForegroundService.startCall(this)
+                        result.success(true)
+                    }
+                    "stopCallService" -> {
+                        CallForegroundService.stop(this)
+                        result.success(true)
+                    }
+                    "showIncomingCall" -> {
+                        val name = call.argument<String>("callerName") ?: ""
+                        val id = call.argument<String>("callerId") ?: ""
+                        CallForegroundService.showIncomingCallNotification(this, name, id)
+                        result.success(true)
+                    }
+                    "cancelIncomingNotification" -> {
+                        CallForegroundService.cancelIncomingNotification(this)
+                        result.success(true)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // If launched from notification with incoming call data,
+        // it's already handled by Flutter state via the OverlayEntry
     }
 
     // Saves a file into the public Downloads/Barricade folder via MediaStore
