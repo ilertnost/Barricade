@@ -3,14 +3,18 @@ class User {
   final String username;
   final String displayName;
   final String? avatarId;
+  final bool online;
+  final String? lastSeen; // ISO datetime string
 
-  User({required this.id, required this.username, required this.displayName, this.avatarId});
+  User({required this.id, required this.username, required this.displayName, this.avatarId, this.online = false, this.lastSeen});
 
   factory User.fromJson(Map<String, dynamic> json) => User(
     id: json['id'],
     username: json['username'],
     displayName: json['display_name'] ?? json['username'],
     avatarId: json['avatar_id'],
+    online: json['online'] ?? false,
+    lastSeen: json['last_seen'],
   );
 
   String get atUsername => '@$username';
@@ -45,9 +49,11 @@ class Member {
   final String username;
   final String displayName;
   final String? avatarId;
-  final String role; // owner | admin | member
+  final String role;
+  final bool online;
+  final String? lastSeen;
 
-  Member({required this.id, required this.username, required this.displayName, this.avatarId, this.role = 'member'});
+  Member({required this.id, required this.username, required this.displayName, this.avatarId, this.role = 'member', this.online = false, this.lastSeen});
 
   factory Member.fromJson(Map<String, dynamic> json) => Member(
     id: json['id'],
@@ -55,6 +61,8 @@ class Member {
     displayName: json['display_name'] ?? json['username'] ?? '',
     avatarId: json['avatar_id'],
     role: json['role'] ?? 'member',
+    online: json['online'] ?? false,
+    lastSeen: json['last_seen'],
   );
 }
 
@@ -95,6 +103,14 @@ class Message {
     content: content, fileId: fileId, mimeType: mimeType,
     replyToId: replyToId, status: status, createdAt: createdAt,
     editedAt: editedAt, reactions: reactions ?? this.reactions,
+  );
+
+  Message copyWithStatus(String newStatus) => Message(
+    id: id, channelId: channelId, senderId: senderId,
+    senderUsername: senderUsername, senderDisplayName: senderDisplayName,
+    content: content, fileId: fileId, mimeType: mimeType,
+    replyToId: replyToId, status: newStatus, createdAt: createdAt,
+    editedAt: editedAt, reactions: reactions,
   );
 
   factory Message.fromJson(Map<String, dynamic> json) => Message(

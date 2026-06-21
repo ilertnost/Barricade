@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../l10n/strings.dart';
 import '../config.dart';
 import '../models/models.dart';
@@ -157,6 +158,8 @@ class _SettingsBodyState extends State<SettingsBody> {
           const _QuickReactionTile(),
           const Divider(),
           const _LanguageTile(),
+          const Divider(),
+          const _PrivacySection(),
           const Divider(),
           _SectionHeader(Strings.t('theme.title')),
           const _ThemeModeTile(),
@@ -543,6 +546,84 @@ class UserSearchDialog extends SearchDelegate<User> {
           ),
         );
       },
+    );
+  }
+}
+
+class _PrivacySection extends StatefulWidget {
+  const _PrivacySection();
+  @override
+  State<_PrivacySection> createState() => _PrivacySectionState();
+}
+
+class _PrivacySectionState extends State<_PrivacySection> {
+  String _lastSeenMode = 'everyone';
+  bool _readReceipts = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _lastSeenMode = prefs.getString('privacy_last_seen') ?? 'everyone';
+        _readReceipts = prefs.getBool('privacy_read_receipts') ?? true;
+      });
+    }
+  }
+
+  Future<void> _setLastSeen(String mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('privacy_last_seen', mode);
+    setState(() => _lastSeenMode = mode);
+  }
+
+  Future<void> _toggleReadReceipts(bool val) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('privacy_read_receipts', val);
+    setState(() => _readReceipts = val);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _SectionHeader(Strings.t('settings.privacy')),
+        ListTile(
+          leading: const Icon(Icons.visibility_outlined),
+          title: Text(Strings.t('settings.privacy_last_seen')),
+          subtitle: Text(Strings.t('settings.privacy_last_seen_hint')),
+        ),
+        RadioListTile<String>(
+          title: Text(Strings.t('settings.privacy_everyone')),
+          value: 'everyone',
+          groupValue: _lastSeenMode,
+          onChanged: (v) => _setLastSeen(v!),
+        ),
+        RadioListTile<String>(
+          title: Text(Strings.t('settings.privacy_recently')),
+          value: 'recently',
+          groupValue: _lastSeenMode,
+          onChanged: (v) => _setLastSeen(v!),
+        ),
+        RadioListTile<String>(
+          title: Text(Strings.t('settings.privacy_nobody')),
+          value: 'nobody',
+          groupValue: _lastSeenMode,
+          onChanged: (v) => _setLastSeen(v!),
+        ),
+        SwitchListTile(
+          title: Text(Strings.t('settings.privacy_read_receipts')),
+          subtitle: Text(Strings.t('settings.privacy_read_receipts_hint')),
+          value: _readReceipts,
+          onChanged: _toggleReadReceipts,
+        ),
+      ],
     );
   }
 }

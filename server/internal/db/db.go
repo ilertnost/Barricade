@@ -110,6 +110,7 @@ func (d *DB) migrate() error {
 	d.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_username ON channels(username) WHERE username != ''`)
 	// Optional recovery phrase (bcrypt hash) for self-service password reset.
 	d.Exec(`ALTER TABLE users ADD COLUMN recovery_hash TEXT NOT NULL DEFAULT ''`)
+	d.Exec(`ALTER TABLE users ADD COLUMN last_seen INTEGER NOT NULL DEFAULT 0`)
 	return nil
 }
 
@@ -132,11 +133,16 @@ func (d *DB) UpdatePassword(userID, hash string) error {
 func scanUser(row interface{ Scan(dest ...interface{}) error }) (*model.User, error) {
 	var u model.User
 	var createdAt int64
-	err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.AvatarID, &u.DeviceID, &createdAt)
+	var lastSeen int64
+	err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.AvatarID, &u.DeviceID, &createdAt, &lastSeen)
 	if err != nil {
 		return nil, err
 	}
 	u.CreatedAt = time.Unix(createdAt, 0).UTC()
+	if lastSeen > 0 {
+		t := time.Unix(lastSeen, 0).UTC()
+		u.LastSeen = &t
+	}
 	return &u, nil
 }
 
@@ -149,22 +155,22 @@ func (d *DB) CreateUser(u *model.User) error {
 }
 
 func (d *DB) GetUserByUsername(username string) (*model.User, error) {
-	row := d.QueryRow(`SELECT id, username, display_name, password_hash, avatar_id, device_id, created_at FROM users WHERE username = ?`, username)
+	row := d.QueryRow(`SELECT id, username, display_name, password_hash, avatar_id, device_id, created_at, COALESCE(last_seen,0) FROM users WHERE username = ?`, username)
 	return scanUser(row)
 }
 
 func (d *DB) GetUser(id string) (*model.User, error) {
-	row := d.QueryRow(`SELECT id, username, display_name, password_hash, avatar_id, device_id, created_at FROM users WHERE id = ?`, id)
+	row := d.QueryRow(`SELECT id, username, display_name, password_hash, avatar_id, device_id, created_at, COALESCE(last_seen,0) FROM users WHERE id = ?`, id)
 	return scanUser(row)
 }
 
-func (d *DB) GetUserByDeviceID(deviceID string) (*model.User, error) {
-	row := d.QueryRow(`SELECT id, username, display_name, password_hash, avatar_id, device_id, created_at FROM users WHERE device_id = ?`, deviceID)
+func (d *DB) GetUserByDevice(deviceID string) (*model.User, error) {
+	row := d.QueryRow(`SELECT id, username, display_name, password_hash, avatar_id, device_id, created_at, COALESCE(last_seen,0) FROM users WHERE device_id = ?`, deviceID)
 	return scanUser(row)
 }
 
-func (d *DB) GetUsers() ([]*model.User, error) {
-	rows, err := d.Query(`SELECT id, username, display_name, password_hash, avatar_id, device_id, created_at FROM users ORDER BY username`)
+func (d *DB) GetAllUsers() ([]*model.User, error) {
+	rows, err := d.Query(`SELECT id, username, display_name, password_hash, avatar_id, device_id, created_at, COALESCE(last_seen,0) FROM users ORDER BY username`)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +187,7 @@ func (d *DB) GetUsers() ([]*model.User, error) {
 }
 
 func (d *DB) SearchUsers(query string) ([]*model.User, error) {
-	rows, err := d.Query(`SELECT id, username, display_name, password_hash, avatar_id, device_id, created_at FROM users WHERE username LIKE ? ORDER BY username LIMIT 20`, "%"+query+"%")
+	rows, err := d.Query(`SELECT id, username, display_name, password_hash, avatar_id, device_id, created_at, COALESCE(last_seen,0) FROM users WHERE username LIKE ? ORDER BY username LIMIT 20`, "%"+query+"%")
 	if err != nil {
 		return nil, err
 	}
@@ -245,7 +251,7 @@ func (d *DB) GetUserChannels(userID string) ([]*model.Channel, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var channels []*model.Channel
+	channels := []*model.Channel{}
 	for rows.Next() {
 		c, err := scanChannel(rows)
 		if err != nil {
@@ -266,7 +272,7 @@ func (d *DB) AddChannelMember(cm *model.ChannelMember) error {
 
 func (d *DB) GetChannelMembers(channelID string) ([]*model.User, error) {
 	rows, err := d.Query(`
-		SELECT u.id, u.username, u.display_name, u.password_hash, u.avatar_id, u.device_id, u.created_at
+		SELECT u.id, u.username, u.display_name, u.password_hash, u.avatar_id, u.device_id, u.created_at, COALESCE(u.last_seen,0)
 		FROM users u
 		JOIN channel_members cm ON cm.user_id = u.id
 		WHERE cm.channel_id = ?`, channelID)
@@ -287,7 +293,7 @@ func (d *DB) GetChannelMembers(channelID string) ([]*model.User, error) {
 
 func (d *DB) GetChannelMembersWithRole(channelID string) ([]*model.MemberInfo, error) {
 	rows, err := d.Query(`
-		SELECT u.id, u.username, u.display_name, u.avatar_id, cm.role
+		SELECT u.id, u.username, u.display_name, u.avatar_id, cm.role, COALESCE(u.last_seen,0)
 		FROM channel_members cm
 		JOIN users u ON u.id = cm.user_id
 		WHERE cm.channel_id = ?
@@ -299,8 +305,13 @@ func (d *DB) GetChannelMembersWithRole(channelID string) ([]*model.MemberInfo, e
 	var members []*model.MemberInfo
 	for rows.Next() {
 		var m model.MemberInfo
-		if err := rows.Scan(&m.ID, &m.Username, &m.DisplayName, &m.AvatarID, &m.Role); err != nil {
+		var lastSeen int64
+		if err := rows.Scan(&m.ID, &m.Username, &m.DisplayName, &m.AvatarID, &m.Role, &lastSeen); err != nil {
 			return nil, err
+		}
+		if lastSeen > 0 {
+			t := time.Unix(lastSeen, 0).UTC()
+			m.LastSeen = &t
 		}
 		members = append(members, &m)
 	}
@@ -474,6 +485,18 @@ func (d *DB) GetMessage(id string) (*model.Message, error) {
 
 func (d *DB) UpdateMessageStatus(id, status string) error {
 	_, err := d.Exec(`UPDATE messages SET status = ? WHERE id = ?`, status, id)
+	return err
+}
+
+func (d *DB) UpdateMessagesReadByChannel(channelID, readerID string) error {
+	_, err := d.Exec(
+		`UPDATE messages SET status = 'read' WHERE channel_id = ? AND sender_id != ? AND status != 'read'`,
+		channelID, readerID)
+	return err
+}
+
+func (d *DB) UpdateLastSeen(userID string) error {
+	_, err := d.Exec(`UPDATE users SET last_seen = ? WHERE id = ?`, time.Now().Unix(), userID)
 	return err
 }
 

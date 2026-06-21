@@ -77,6 +77,8 @@ class _ChatsTab extends StatefulWidget {
 class _ChatsTabState extends State<_ChatsTab> {
   List<Channel> _channels = [];
   bool _loading = true;
+  final Map<String, String> _dmPeerNames = {};
+  final Map<String, String> _dmPeerUsernames = {};
 
   @override
   void initState() {
@@ -116,10 +118,26 @@ class _ChatsTabState extends State<_ChatsTab> {
         for (final ch in channels) {
           context.read<WsService>().joinChannel(ch.id);
         }
+        _resolveDmNames();
       }
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _resolveDmNames() async {
+    for (final ch in _channels) {
+      if (ch.type != 'dm') continue;
+      try {
+        final members = await ApiService.getMembers(ch.id);
+        final peer = members.where((m) => m.id != ApiService.currentUserId).firstOrNull;
+        if (peer != null) {
+          _dmPeerNames[ch.id] = peer.displayName.isNotEmpty ? peer.displayName : peer.username;
+          _dmPeerUsernames[ch.id] = peer.username;
+        }
+      } catch (_) {}
+    }
+    if (mounted) setState(() {});
   }
 
   Future<void> _openChat(Channel ch) async {
@@ -222,8 +240,11 @@ class _ChatsTabState extends State<_ChatsTab> {
                     separatorBuilder: (_, __) => const SizedBox(height: 2),
                     itemBuilder: (_, i) {
                       final ch = _channels[i];
-                      final canDelete = ch.type == 'dm' || widget.me?.id == ch.ownerId;
-                      final name = ch.name.isEmpty ? 'Чат ${ch.id.substring(0, 6)}' : ch.name;
+                      final isDm = ch.type == 'dm';
+                      final canDelete = isDm || widget.me?.id == ch.ownerId;
+                      final name = isDm
+                          ? (_dmPeerNames[ch.id] ?? ch.name)
+                          : (ch.name.isEmpty ? 'Чат ${ch.id.substring(0, 6)}' : ch.name);
                       return Dismissible(
                         key: ValueKey(ch.id),
                         direction: canDelete ? DismissDirection.endToStart : DismissDirection.none,
@@ -306,7 +327,22 @@ class _ContactsTabState extends State<_ContactsTab> {
       if (mounted) {
         Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(channel: ch)));
       }
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Ошибка открытия чата: $e')));
+      }
+    }
+  }
+
+  String _formatLastSeen(String lastSeen) {
+    final dt = DateTime.tryParse(lastSeen);
+    if (dt == null) return '';
+    final now = DateTime.now().toUtc();
+    final diff = now.difference(dt);
+    if (diff.inMinutes < 1) return Strings.t('user.online_now');
+    if (diff.inMinutes < 60) return '${diff.inMinutes} ${Strings.t('user.min_ago')}';
+    if (diff.inHours < 24) return '${diff.inHours} ${Strings.t('user.hours_ago')}';
+    return '${diff.inDays} ${Strings.t('user.days_ago')}';
   }
 
   @override
@@ -326,9 +362,31 @@ class _ContactsTabState extends State<_ContactsTab> {
                       final u = _users[i];
                       return ListTile(
                         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-                        leading: UserAvatar(name: u.displayName, avatarId: u.avatarId, radius: 24),
+                        leading: Stack(
+                          children: [
+                            UserAvatar(name: u.displayName, avatarId: u.avatarId, radius: 24),
+                            if (u.online)
+                              Positioned(
+                                right: 0, bottom: 0,
+                                child: Container(
+                                  width: 10, height: 10,
+                                  decoration: BoxDecoration(
+                                    color: Colors.green,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: Theme.of(context).colorScheme.surface, width: 1.5),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
                         title: Text(u.displayName, style: const TextStyle(fontWeight: FontWeight.w600)),
-                        subtitle: Text(u.atUsername),
+                        subtitle: Text(
+                          u.online
+                              ? Strings.t('user.online_now')
+                              : u.lastSeen != null
+                                  ? _formatLastSeen(u.lastSeen!)
+                                  : u.atUsername,
+                        ),
                         trailing: const Icon(Icons.chat_bubble_outline, size: 18),
                         onTap: () => _openDm(u),
                       );
@@ -462,14 +520,22 @@ class GlobalSearchDelegate extends SearchDelegate<void> {
         }
         return;
       }
-    } catch (_) {}
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Ошибка поиска чата: $e')));
+      }
+    }
     try {
       final ch = await ApiService.createChannel(
           target.displayName.isNotEmpty ? target.displayName : target.username, 'dm', [target.id]);
       if (context.mounted) {
         Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(channel: ch)));
       }
-    } catch (_) {}
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Ошибка создания чата: $e')));
+      }
+    }
   }
 }
 

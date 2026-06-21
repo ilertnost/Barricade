@@ -35,6 +35,7 @@ func (h *Hub) Run() {
 		case client := <-h.Register:
 			h.clients[client.UserID] = client
 			log.Printf("user %s connected", client.Username)
+			go h.broadcastPresence(client.UserID, true)
 
 		case client := <-h.Unregister:
 			delete(h.clients, client.UserID)
@@ -42,7 +43,34 @@ func (h *Hub) Run() {
 				delete(h.channels[chID], client.UserID)
 			}
 			close(client.Send)
+			go func() {
+				h.DB.UpdateLastSeen(client.UserID)
+				h.broadcastPresence(client.UserID, false)
+			}()
 			log.Printf("user %s disconnected", client.Username)
+		}
+	}
+}
+
+func (h *Hub) broadcastPresence(userID string, online bool) {
+	channels, err := h.DB.GetUserChannels(userID)
+	if err != nil {
+		return
+	}
+	notified := map[string]bool{}
+	for _, ch := range channels {
+		members, _ := h.DB.GetChannelMembers(ch.ID)
+		for _, m := range members {
+			if m.ID != userID && !notified[m.ID] {
+				notified[m.ID] = true
+				h.BroadcastToUser(m.ID, OutgoingMessage{
+					Type: "user_presence",
+					Payload: map[string]interface{}{
+						"user_id": userID,
+						"online":  online,
+					},
+				})
+			}
 		}
 	}
 }
@@ -75,6 +103,8 @@ func (h *Hub) handleMessage(client *Client, raw []byte) {
 		h.handleRemoveReaction(client, msg.Payload)
 	case "webrtc":
 		h.handleWebRTC(client, msg.Payload)
+	case "message_read":
+		h.handleReadMessage(client, msg.Payload)
 	default:
 		client.SendError("unknown message type")
 	}
@@ -368,6 +398,21 @@ func (h *Hub) BroadcastToUser(userID string, msg OutgoingMessage) {
 	}
 }
 
+func (h *Hub) BroadcastToChannel(channelID string, msg OutgoingMessage) {
+	data, _ := json.Marshal(msg)
+	for _, client := range h.channels[channelID] {
+		select {
+		case client.Send <- data:
+		default:
+		}
+	}
+}
+
+func (h *Hub) IsUserOnline(userID string) bool {
+	_, ok := h.clients[userID]
+	return ok
+}
+
 func (h *Hub) isMember(userID, channelID string) bool {
 	members, err := h.DB.GetChannelMembers(channelID)
 	if err != nil {
@@ -379,4 +424,24 @@ func (h *Hub) isMember(userID, channelID string) bool {
 		}
 	}
 	return false
+}
+
+func (h *Hub) handleReadMessage(client *Client, payload json.RawMessage) {
+	var p ReadMessagePayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		client.SendError("invalid payload")
+		return
+	}
+	if !h.isMember(client.UserID, p.ChannelID) {
+		return
+	}
+	h.DB.UpdateMessagesReadByChannel(p.ChannelID, client.UserID)
+	h.BroadcastToChannel(p.ChannelID, OutgoingMessage{
+		Type: "message_status_updated",
+		Payload: map[string]interface{}{
+			"channel_id": p.ChannelID,
+			"status":     "read",
+			"read_by":    client.UserID,
+		},
+	})
 }

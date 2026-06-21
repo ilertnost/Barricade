@@ -100,6 +100,10 @@ class WsService {
     });
   }
 
+  void sendReadReceipt(String channelId) {
+    send('message_read', {'channel_id': channelId});
+  }
+
   void disconnect() {
     _channel?.sink.close();
     _channel = null;

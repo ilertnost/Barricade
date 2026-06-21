@@ -103,7 +103,7 @@ func (h *Handler) CheckDevice(w http.ResponseWriter, r *http.Request) {
 		jsonResp(w, http.StatusOK, map[string]interface{}{"registered": false})
 		return
 	}
-	_, err := h.DB.GetUserByDeviceID(req.DeviceID)
+	_, err := h.DB.GetUserByDevice(req.DeviceID)
 	jsonResp(w, http.StatusOK, map[string]interface{}{"registered": err == nil})
 }
 
@@ -216,6 +216,7 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "user not found", http.StatusNotFound)
 		return
 	}
+	user.Online = true
 	jsonResp(w, http.StatusOK, user)
 }
 
@@ -271,13 +272,31 @@ func (h *Handler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	if query != "" {
 		users, err = h.DB.SearchUsers(query)
 	} else {
-		users, err = h.DB.GetUsers()
+		users, err = h.DB.GetAllUsers()
 	}
 	if err != nil {
 		jsonError(w, "failed to get users", http.StatusInternalServerError)
 		return
 	}
+	for _, u := range users {
+		u.Online = h.Hub.IsUserOnline(u.ID)
+	}
 	jsonResp(w, http.StatusOK, users)
+}
+
+func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
+	userID := r.PathValue("id")
+	if userID == "" {
+		jsonError(w, "user id required", http.StatusBadRequest)
+		return
+	}
+	user, err := h.DB.GetUser(userID)
+	if err != nil {
+		jsonError(w, "user not found", http.StatusNotFound)
+		return
+	}
+	user.Online = h.Hub.IsUserOnline(user.ID)
+	jsonResp(w, http.StatusOK, user)
 }
 
 func (h *Handler) CreateChannel(w http.ResponseWriter, r *http.Request) {
@@ -523,6 +542,9 @@ func (h *Handler) GetChannelMembers(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		jsonError(w, "failed to get members", http.StatusInternalServerError)
 		return
+	}
+	for _, m := range members {
+		m.Online = h.Hub.IsUserOnline(m.ID)
 	}
 	jsonResp(w, http.StatusOK, members)
 }

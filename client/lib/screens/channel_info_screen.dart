@@ -23,6 +23,7 @@ class _ChannelInfoScreenState extends State<ChannelInfoScreen> {
   late Channel _channel;
   List<Member> _members = [];
   bool _loading = true;
+  String _peerName = '';
 
   String get _myId => ApiService.currentUserId ?? '';
   String get _myRole {
@@ -42,7 +43,19 @@ class _ChannelInfoScreenState extends State<ChannelInfoScreen> {
 
   Future<void> _loadMembers() async {
     final members = await ApiService.getMembers(_channel.id);
-    if (mounted) setState(() { _members = members; _loading = false; });
+    if (mounted) {
+      setState(() { _members = members; _loading = false; });
+      if (_channel.isDm) _loadPeerInfo();
+    }
+  }
+
+  Future<void> _loadPeerInfo() async {
+    final peer = _members.where((m) => m.id != _myId).firstOrNull;
+    if (peer != null && mounted) {
+      setState(() {
+        _peerName = peer.displayName.isNotEmpty ? peer.displayName : peer.username;
+      });
+    }
   }
 
   String get _typeLabel => _channel.isChannel ? Strings.t('channel.channel') : _channel.isGroup ? Strings.t('channel.group') : Strings.t('channel.dm');
@@ -56,7 +69,7 @@ class _ChannelInfoScreenState extends State<ChannelInfoScreen> {
         appBar: AppBar(
           title: Text(Strings.t('info.info')),
           actions: [
-            if (_isOwner)
+            if (_isOwner && !widget.channel.isDm)
               IconButton(icon: const Icon(Icons.edit), tooltip: Strings.t('common.edit'), onPressed: _editSettings),
             if (!_isOwner && !widget.channel.isDm)
               IconButton(
@@ -74,13 +87,16 @@ class _ChannelInfoScreenState extends State<ChannelInfoScreen> {
               child: Column(
                 children: [
                   UserAvatar(
-                    name: _channel.name,
+                    name: _channel.isDm ? (_peerName.isNotEmpty ? _peerName : _channel.name) : _channel.name,
                     radius: 40,
-                    fallbackIcon: _channel.isChannel ? Icons.campaign : Icons.group,
+                    fallbackIcon: !_channel.isDm
+                        ? (_channel.isChannel ? Icons.campaign : Icons.group)
+                        : null,
                   ),
                   const SizedBox(height: 10),
-                  Text(_channel.name, style: Theme.of(context).textTheme.titleLarge),
-                  if (_channel.username.isNotEmpty)
+                  Text(_channel.isDm ? (_peerName.isNotEmpty ? _peerName : _channel.name) : _channel.name,
+                      style: Theme.of(context).textTheme.titleLarge),
+                  if (!_channel.isDm && _channel.username.isNotEmpty)
                     Text('@${_channel.username}', style: TextStyle(color: cs.primary)),
                   const SizedBox(height: 2),
                   Text(Strings.t('info.member_count').replaceFirst('{type}', _typeLabel).replaceFirst('{count}', '${_members.length}'),
@@ -123,7 +139,7 @@ class _ChannelInfoScreenState extends State<ChannelInfoScreen> {
             ),
           ],
         ),
-        floatingActionButton: _canManage
+        floatingActionButton: _canManage && !widget.channel.isDm
             ? FloatingActionButton.extended(
                 onPressed: _addMember,
                 icon: const Icon(Icons.person_add),

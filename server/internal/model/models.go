@@ -3,13 +3,15 @@ package model
 import "time"
 
 type User struct {
-	ID           string    `json:"id"`
-	Username     string    `json:"username"`
-	DisplayName  string    `json:"display_name"`
-	PasswordHash string    `json:"-"`
-	AvatarID     *string   `json:"avatar_id"`
-	DeviceID     string    `json:"-"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID           string     `json:"id"`
+	Username     string     `json:"username"`
+	DisplayName  string     `json:"display_name"`
+	PasswordHash string     `json:"-"`
+	AvatarID     *string    `json:"avatar_id"`
+	DeviceID     string     `json:"-"`
+	CreatedAt    time.Time  `json:"created_at"`
+	LastSeen     *time.Time `json:"last_seen,omitempty"`
+	Online       bool       `json:"online"`
 }
 
 type Message struct {
@@ -56,11 +58,13 @@ type Channel struct {
 
 // MemberInfo is a channel member's profile plus their role in that channel.
 type MemberInfo struct {
-	ID          string `json:"id"`
-	Username    string `json:"username"`
-	DisplayName string `json:"display_name"`
-	AvatarID    *string `json:"avatar_id"`
-	Role        string `json:"role"`
+	ID          string     `json:"id"`
+	Username    string     `json:"username"`
+	DisplayName string     `json:"display_name"`
+	AvatarID    *string    `json:"avatar_id"`
+	Role        string     `json:"role"`
+	Online      bool       `json:"online"`
+	LastSeen    *time.Time `json:"last_seen,omitempty"`
 }
 
 type ChannelMember struct {

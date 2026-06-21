@@ -60,3 +60,7 @@ type RemoveReactionPayload struct {
 	MessageID string `json:"message_id"`
 	Emoji     string `json:"emoji"`
 }
+
+type ReadMessagePayload struct {
+	ChannelID string `json:"channel_id"`
+}

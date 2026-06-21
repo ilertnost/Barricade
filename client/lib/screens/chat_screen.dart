@@ -34,7 +34,10 @@ class _ChatScreenState extends State<ChatScreen> {
   List<Message> _messages = [];
   bool _loading = true;
   String? _filterSenderId;
-  bool _canPost = true; // false for non-admins in broadcast channels
+  bool _canPost = true;
+  bool _peerOnline = false;
+  String? _peerLastSeen;
+  String _peerName = '';
 
   @override
   void initState() {
@@ -43,15 +46,47 @@ class _ChatScreenState extends State<ChatScreen> {
     _loadMessages();
     context.read<WsService>().onMessage = _handleWsMessage;
     context.read<WsService>().joinChannel(widget.channel.id);
+    context.read<WsService>().sendReadReceipt(widget.channel.id);
     _resolvePostPermission();
+    if (widget.channel.type == 'dm') _loadPeerInfo();
+  }
+
+  Future<void> _loadPeerInfo() async {
+    try {
+      final members = await ApiService.getMembers(widget.channel.id);
+      if (!mounted) return;
+      final peer = members.where((m) => m.id != ApiService.currentUserId).firstOrNull;
+      if (peer != null) {
+        final user = await ApiService.getUser(peer.id);
+        if (mounted) {
+          setState(() {
+            _peerName = user.displayName.isNotEmpty ? user.displayName : user.username;
+            _peerOnline = user.online;
+            _peerLastSeen = user.lastSeen;
+          });
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _resolvePostPermission() async {
-    if (widget.channel.type != 'guild') return; // groups/DMs: everyone posts
+    if (widget.channel.type != 'guild') return;
     final members = await ApiService.getMembers(widget.channel.id);
     final me = members.where((m) => m.id == ApiService.currentUserId);
     final canPost = me.isNotEmpty && (me.first.role == 'owner' || me.first.role == 'admin');
     if (mounted) setState(() => _canPost = canPost);
+  }
+
+  String _formatLastSeen(String? lastSeen) {
+    if (lastSeen == null) return '';
+    final dt = DateTime.tryParse(lastSeen);
+    if (dt == null) return '';
+    final now = DateTime.now().toUtc();
+    final diff = now.difference(dt);
+    if (diff.inMinutes < 1) return Strings.t('user.online');
+    if (diff.inMinutes < 60) return '${diff.inMinutes} ${Strings.t('user.min_ago')}';
+    if (diff.inHours < 24) return '${diff.inHours} ${Strings.t('user.hours_ago')}';
+    return '${diff.inDays} ${Strings.t('user.days_ago')}';
   }
 
   List<Message> get _displayMessages {
@@ -116,6 +151,22 @@ class _ChatScreenState extends State<ChatScreen> {
               ).toList(),
             );
           }
+        });
+      }
+    } else if (type == 'message_status_updated' && payload != null) {
+      if (payload['channel_id'] == widget.channel.id) {
+        setState(() {
+          for (var i = 0; i < _messages.length; i++) {
+            if (_messages[i].senderId != ApiService.currentUserId) continue;
+            _messages[i] = _messages[i].copyWithStatus('read');
+          }
+        });
+      }
+    } else if (type == 'user_presence' && payload != null) {
+      final userId = payload['user_id'] as String?;
+      if (userId != null && userId != ApiService.currentUserId) {
+        setState(() {
+          _peerOnline = payload['online'] == true;
         });
       }
     }
@@ -369,21 +420,27 @@ class _ChatScreenState extends State<ChatScreen> {
 
   PreferredSizeWidget _chatAppBar() {
     final cs = Theme.of(context).colorScheme;
-    final name = widget.channel.name.isEmpty ? Strings.t('common.chats') : widget.channel.name;
+    final name = widget.channel.type == 'dm'
+        ? (_peerName.isNotEmpty ? _peerName : widget.channel.name)
+        : (widget.channel.name.isEmpty ? Strings.t('common.chats') : widget.channel.name);
     final typeLabel = widget.channel.type == 'guild'
         ? Strings.t('channel.channel')
         : widget.channel.type == 'dm'
             ? Strings.t('channel.dm')
             : Strings.t('channel.group');
-    final subtitle = _filterSenderId != null ? Strings.t('channel.filter_by_member') : typeLabel;
+    final subtitle = _filterSenderId != null
+        ? Strings.t('channel.filter_by_member')
+        : widget.channel.type == 'dm'
+            ? (_peerOnline
+                ? Strings.t('user.online')
+                : _formatLastSeen(_peerLastSeen))
+            : typeLabel;
     return AppBar(
       titleSpacing: 4,
       title: InkWell(
         borderRadius: BorderRadius.circular(8),
-        onTap: widget.channel.type == 'dm'
-            ? null
-            : () => Navigator.push(context, MaterialPageRoute(
-                builder: (_) => ChannelInfoScreen(channel: widget.channel))),
+        onTap: () => Navigator.push(context, MaterialPageRoute(
+            builder: (_) => ChannelInfoScreen(channel: widget.channel))),
         child: Row(
           children: [
             UserAvatar(

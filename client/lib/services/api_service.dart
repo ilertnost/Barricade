@@ -100,6 +100,14 @@ class ApiService {
     return User.fromJson(jsonDecode(res.body));
   }
 
+  static Future<User> getUser(String userId) async {
+    final res = await http.get(
+      Uri.parse('${Config.serverUrl}/api/users/$userId'),
+      headers: await headers(),
+    );
+    return User.fromJson(jsonDecode(res.body));
+  }
+
   static Future<List<User>> getUsers({String? query}) async {
     final uri = Uri.parse('${Config.serverUrl}/api/users')
         .replace(queryParameters: query != null ? {'q': query} : null);
@@ -190,8 +198,9 @@ class ApiService {
       Uri.parse('${Config.serverUrl}/api/channels'),
       headers: await headers(),
     );
-    final list = jsonDecode(res.body) as List;
-    return list.map((e) => Channel.fromJson(e)).toList();
+    final decoded = jsonDecode(res.body);
+    if (decoded == null) return [];
+    return (decoded as List).map((e) => Channel.fromJson(e)).toList();
   }
 
   static Future<List<Message>> getMessages(String channelId, {String? before}) async {
