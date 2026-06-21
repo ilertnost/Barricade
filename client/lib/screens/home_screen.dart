@@ -55,7 +55,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showCallBanner() {
     if (_callBanner != null) return;
     _callBanner = OverlayEntry(
-      builder: (_) => const IncomingCallBanner(),
+      builder: (_) => const IncomingCallFullscreen(),
     );
     Overlay.of(context).insert(_callBanner!);
   }

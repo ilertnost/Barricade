@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'api_service.dart';
 import 'ws_service.dart';
 
@@ -38,9 +39,13 @@ enum CallState { idle, ringing, connected }
 
 class CallService extends ChangeNotifier {
   final WsService _ws;
+  final AudioPlayer _ringPlayer = AudioPlayer();
+  final AudioPlayer _tonePlayer = AudioPlayer();
 
   CallService(this._ws) {
     _ws.addListener(onWsMessage);
+    _ringPlayer.setReleaseMode(ReleaseMode.loop);
+    _ringPlayer.setVolume(0.5);
   }
 
   CallState _state = CallState.idle;
@@ -106,6 +111,7 @@ class CallService extends ChangeNotifier {
     _channelId = channelId;
     _isDm = peerIds.length == 1;
     _state = CallState.ringing;
+    _playRingback();
     notifyListeners();
 
     await initLocalMedia(video: video);
@@ -116,10 +122,12 @@ class CallService extends ChangeNotifier {
     }
 
     _state = CallState.connected;
+    _stopRings();
     notifyListeners();
   }
 
   Future<void> answerIncomingCall() async {
+    _stopRings();
     final callerId = _pendingCallerId;
     final sdp = _pendingOfferSdp;
     if (callerId == null || sdp == null || _channelId == null) return;
@@ -153,6 +161,7 @@ class CallService extends ChangeNotifier {
   }
 
   Future<void> declineIncomingCall() async {
+    _stopRings();
     final callerId = _pendingCallerId;
     final chId = _channelId;
     _incomingCall = null;
@@ -217,6 +226,7 @@ class CallService extends ChangeNotifier {
           fromDisplayName: _pendingCallerDisplayName,
         );
         _state = CallState.ringing;
+        _playIncomingRing();
         notifyListeners();
 
       case 'answer':
@@ -234,6 +244,7 @@ class CallService extends ChangeNotifier {
         await _connections[fromId]?.addCandidate(candidate);
 
       case 'end_call':
+        _playDisconnect();
         _resetAll();
     }
   }
@@ -327,7 +338,24 @@ class CallService extends ChangeNotifier {
         await e.value.close();
       }
     }
+    _playDisconnect();
     _resetAll();
+  }
+
+  void _playRingback() {
+    _ringPlayer.play(AssetSource('sounds/ringback.wav'));
+  }
+
+  void _playIncomingRing() {
+    _ringPlayer.play(AssetSource('sounds/incoming.wav'));
+  }
+
+  void _playDisconnect() {
+    _tonePlayer.play(AssetSource('sounds/disconnect.wav'));
+  }
+
+  void _stopRings() {
+    _ringPlayer.stop();
   }
 
   Future<void> toggleMute() async {
@@ -354,6 +382,8 @@ class CallService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _ringPlayer.dispose();
+    _tonePlayer.dispose();
     _participantsCtrl.close();
     endCall();
     super.dispose();
