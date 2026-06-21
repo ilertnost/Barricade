@@ -35,7 +35,7 @@ class WsService {
       onError: (err) => null,
       onDone: () {
         _channel = null;
-        Future.delayed(Duration(seconds: 3), connect);
+        Future.delayed(const Duration(seconds: 3), connect);
       },
     );
   }

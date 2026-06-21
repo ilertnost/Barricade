@@ -159,7 +159,6 @@ class _ChatScreenState extends State<ChatScreen> {
       final chId = payload['channel_id'] as String?;
       if (msgId != null && chId == widget.channel.id) {
         setState(() => _messages.removeWhere((m) => m.id == msgId));
-        _loadMessages();
       }
     } else if (type == 'reaction_add' && payload != null) {
       final msgId = payload['message_id'] as String?;

@@ -22,11 +22,47 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _index = 0;
   User? _me;
+  OverlayEntry? _callBanner;
 
   @override
   void initState() {
     super.initState();
     _loadMe();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    context.read<CallService>().addListener(_onCallStateChanged);
+  }
+
+  @override
+  void dispose() {
+    _callBanner?.remove();
+    context.read<CallService>().removeListener(_onCallStateChanged);
+    super.dispose();
+  }
+
+  void _onCallStateChanged() {
+    final call = context.read<CallService>();
+    if (call.state == CallState.ringing && call.incomingCall != null) {
+      _showCallBanner();
+    } else {
+      _hideCallBanner();
+    }
+  }
+
+  void _showCallBanner() {
+    if (_callBanner != null) return;
+    _callBanner = OverlayEntry(
+      builder: (_) => const IncomingCallBanner(),
+    );
+    Overlay.of(context).insert(_callBanner!);
+  }
+
+  void _hideCallBanner() {
+    _callBanner?.remove();
+    _callBanner = null;
   }
 
   Future<void> _loadMe() async {
@@ -41,20 +77,13 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     context.watch<LocaleController>();
-    final call = context.watch<CallService>();
     return Scaffold(
-      body: Stack(
+      body: IndexedStack(
+        index: _index,
         children: [
-          IndexedStack(
-            index: _index,
-            children: [
-              _ChatsTab(me: _me, onProfileTap: _goToSettings),
-              _ContactsTab(),
-              SettingsScreen(),
-            ],
-          ),
-          if (call.state == CallState.ringing && call.incomingCall != null)
-            const IncomingCallScreen(),
+          _ChatsTab(me: _me, onProfileTap: _goToSettings),
+          _ContactsTab(),
+          SettingsScreen(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -91,6 +120,7 @@ class _ChatsTabState extends State<_ChatsTab> {
   final Map<String, int> _unreadCounts = {};
   final Map<String, DateTime> _lastActivity = {};
   String? _openChatId;
+  bool _wsBound = false;
 
   @override
   void initState() {
@@ -106,6 +136,8 @@ class _ChatsTabState extends State<_ChatsTab> {
   }
 
   void _bindWs() {
+    if (_wsBound) return;
+    _wsBound = true;
     context.read<WsService>().addListener(_handleWsMessage);
   }
 

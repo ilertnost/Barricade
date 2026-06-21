@@ -34,7 +34,7 @@ class CallParticipant {
   });
 }
 
-enum CallState { idle, ringing, connected, ended }
+enum CallState { idle, ringing, connected }
 
 class CallService extends ChangeNotifier {
   final WsService _ws;
@@ -46,7 +46,7 @@ class CallService extends ChangeNotifier {
   CallState _state = CallState.idle;
   String? _channelId;
   bool _muted = false;
-  bool _videoEnabled = true;
+  bool _videoEnabled = false;
   bool _isDm = false;
 
   MediaStream? _localStream;
@@ -68,7 +68,6 @@ class CallService extends ChangeNotifier {
   IncomingCallInfo? _incomingCall;
   IncomingCallInfo? get incomingCall => _incomingCall;
 
-  // stored while waiting for user to accept/decline
   RTCSessionDescription? _pendingOfferSdp;
   String? _pendingCallerId;
   String _pendingCallerDisplayName = '';
@@ -86,7 +85,7 @@ class CallService extends ChangeNotifier {
     }
   }
 
-  Future<void> initLocalMedia({bool video = true}) async {
+  Future<void> initLocalMedia({bool video = false}) async {
     _videoEnabled = video;
     final constraints = <String, dynamic>{
       'audio': true,
@@ -103,7 +102,7 @@ class CallService extends ChangeNotifier {
     }
   }
 
-  Future<void> startCall(String channelId, List<String> peerIds, {bool video = true}) async {
+  Future<void> startCall(String channelId, List<String> peerIds, {bool video = false}) async {
     _channelId = channelId;
     _isDm = peerIds.length == 1;
     _state = CallState.ringing;
@@ -133,7 +132,7 @@ class CallService extends ChangeNotifier {
     notifyListeners();
 
     if (_localStream == null) {
-      await initLocalMedia(video: true);
+      await initLocalMedia(video: false);
     }
 
     final pc = await _createPeerConnection(callerId, _channelId!);
@@ -194,7 +193,6 @@ class CallService extends ChangeNotifier {
     switch (type) {
       case 'offer':
         if (_state != CallState.idle) {
-          // busy — reject
           if (channelId != null) _ws.sendWebRTC(channelId, 'end_call', {}, fromId);
           return;
         }
@@ -207,7 +205,6 @@ class CallService extends ChangeNotifier {
         _pendingOfferSdp = sdp;
         _pendingCallerId = fromId;
 
-        // Try to resolve caller name
         _pendingCallerDisplayName = fromId;
         try {
           final user = await ApiService.getUser(fromId);
@@ -237,23 +234,28 @@ class CallService extends ChangeNotifier {
         await _connections[fromId]?.addCandidate(candidate);
 
       case 'end_call':
-        _state = CallState.ended;
-        _channelId = null;
-        _incomingCall = null;
-        _pendingOfferSdp = null;
-        _pendingCallerId = null;
-        for (final e in _connections.entries) {
-          await e.value.close();
-        }
-        _connections.clear();
-        _remoteStreams.clear();
-        _volumes.clear();
-        await _localStream?.dispose();
-        _localStream = null;
-        _participants.clear();
-        if (!_participantsCtrl.isClosed) _participantsCtrl.add([]);
-        notifyListeners();
+        _resetAll();
     }
+  }
+
+  void _resetAll() {
+    _state = CallState.idle;
+    _channelId = null;
+    _incomingCall = null;
+    _pendingOfferSdp = null;
+    _pendingCallerId = null;
+    _pendingCallerDisplayName = '';
+    for (final e in _connections.entries) {
+      e.value.close();
+    }
+    _connections.clear();
+    _remoteStreams.clear();
+    _volumes.clear();
+    _localStream?.dispose();
+    _localStream = null;
+    _participants.clear();
+    _participantsCtrl.add([]);
+    notifyListeners();
   }
 
   Future<RTCPeerConnection> _createPeerConnection(String peerId, String channelId) async {
@@ -312,13 +314,10 @@ class CallService extends ChangeNotifier {
     _connections.remove(userId);
     _remoteStreams.remove(userId);
     if (_connections.isEmpty) {
-      _state = CallState.ended;
-      _channelId = null;
-      await _localStream?.dispose();
-      _localStream = null;
-      _participants.clear();
+      _resetAll();
+    } else {
+      _updateParticipants();
     }
-    _updateParticipants();
   }
 
   Future<void> endCall() async {
@@ -328,19 +327,7 @@ class CallService extends ChangeNotifier {
         await e.value.close();
       }
     }
-    _connections.clear();
-    _remoteStreams.clear();
-    await _localStream?.dispose();
-    _localStream = null;
-    _volumes.clear();
-    _participants.clear();
-    if (!_participantsCtrl.isClosed) _participantsCtrl.add([]);
-    _state = CallState.ended;
-    _channelId = null;
-    _incomingCall = null;
-    _pendingOfferSdp = null;
-    _pendingCallerId = null;
-    notifyListeners();
+    _resetAll();
   }
 
   Future<void> toggleMute() async {
