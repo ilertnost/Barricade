@@ -106,6 +106,11 @@ class _CallScreenState extends State<CallScreen> {
     );
     if (confirmed != true) return;
     await call.startScreenShare();
+    if (mounted && !call.isSharingScreen) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Не удалось начать демонстрацию экрана')),
+      );
+    }
   }
 
   void _onKeyEvent(KeyEvent event) {

@@ -343,9 +343,20 @@ class CallService extends ChangeNotifier {
         'audio': false,
       };
       _screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
+      debugPrint('getDisplayMedia OK, tracks: ${_screenStream!.getVideoTracks().length}');
     } catch (e) {
       debugPrint('startScreenShare getDisplayMedia error: $e');
-      return;
+      try {
+        // Fallback: try without frameRate constraint
+        final fallback = <String, dynamic>{
+          'video': true,
+          'audio': false,
+        };
+        _screenStream = await navigator.mediaDevices.getDisplayMedia(fallback);
+      } catch (e2) {
+        debugPrint('startScreenShare fallback error: $e2');
+        return;
+      }
     }
 
     _isSharingScreen = true;

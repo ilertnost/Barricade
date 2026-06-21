@@ -82,7 +82,14 @@ class _VoiceRoomPanelState extends State<_VoiceRoomPanel> {
     );
     if (confirmed != true) return;
     await call.startScreenShare();
-    if (mounted) setState(() => _ensurePreviewRenderer(call));
+    if (mounted) {
+      if (!call.isSharingScreen) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось начать демонстрацию экрана')),
+        );
+      }
+      setState(() => _ensurePreviewRenderer(call));
+    }
   }
 
   @override
