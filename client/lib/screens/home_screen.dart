@@ -4,10 +4,12 @@ import '../l10n/strings.dart';
 import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/ws_service.dart';
+import '../services/call_service.dart';
 import '../services/locale_controller.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
 import 'settings_screen.dart';
+import 'incoming_call_screen.dart';
 
 /// App shell: bottom NavigationBar with Чаты / Контакты / Настройки.
 class HomeScreen extends StatefulWidget {
@@ -39,13 +41,20 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     context.watch<LocaleController>();
+    final call = context.watch<CallService>();
     return Scaffold(
-      body: IndexedStack(
-        index: _index,
+      body: Stack(
         children: [
-          _ChatsTab(me: _me, onProfileTap: _goToSettings),
-          _ContactsTab(),
-          SettingsScreen(),
+          IndexedStack(
+            index: _index,
+            children: [
+              _ChatsTab(me: _me, onProfileTap: _goToSettings),
+              _ContactsTab(),
+              SettingsScreen(),
+            ],
+          ),
+          if (call.state == CallState.ringing && call.incomingCall != null)
+            const IncomingCallScreen(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -79,6 +88,9 @@ class _ChatsTabState extends State<_ChatsTab> {
   bool _loading = true;
   final Map<String, String> _dmPeerNames = {};
   final Map<String, String> _dmPeerUsernames = {};
+  final Map<String, int> _unreadCounts = {};
+  final Map<String, DateTime> _lastActivity = {};
+  String? _openChatId;
 
   @override
   void initState() {
@@ -110,6 +122,17 @@ class _ChatsTabState extends State<_ChatsTab> {
     } else if (type == 'channel_deleted' && payload != null) {
       final chId = payload['channel_id'] as String?;
       if (chId != null) setState(() => _channels.removeWhere((c) => c.id == chId));
+    } else if (type == 'new_message' && payload != null) {
+      final msg = Message.fromJson(payload);
+      final chId = msg.channelId;
+      if (chId != _openChatId) {
+        _unreadCounts[chId] = (_unreadCounts[chId] ?? 0) + 1;
+      }
+      _lastActivity[chId] = DateTime.now();
+      setState(() {
+        _channels.sort((a, b) => (_lastActivity[b.id] ?? DateTime(2000))
+            .compareTo(_lastActivity[a.id] ?? DateTime(2000)));
+      });
     }
   }
 
@@ -147,10 +170,13 @@ class _ChatsTabState extends State<_ChatsTab> {
   }
 
   Future<void> _openChat(Channel ch) async {
+    setState(() => _openChatId = ch.id);
+    _unreadCounts.remove(ch.id);
     await Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(channel: ch)));
     // ChatScreen took over the WS handler — restore ours and refresh.
     _bindWs();
     _load();
+    setState(() => _openChatId = null);
   }
 
   void _createChannel() {
@@ -273,9 +299,28 @@ class _ChatsTabState extends State<_ChatsTab> {
                           ),
                           title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
                           subtitle: Text(_subtitleFor(ch)),
-                          trailing: ch.type != 'dm' && ch.visibility == 'private'
-                              ? Icon(Icons.lock, size: 16, color: cs.outline)
-                              : null,
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_unreadCounts.containsKey(ch.id) && _unreadCounts[ch.id]! > 0)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: cs.primary,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    '${_unreadCounts[ch.id]}',
+                                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                              if (ch.type != 'dm' && ch.visibility == 'private')
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 6),
+                                  child: Icon(Icons.lock, size: 16, color: cs.outline),
+                                ),
+                            ],
+                          ),
                           onTap: () => _openChat(ch),
                         ),
                       );

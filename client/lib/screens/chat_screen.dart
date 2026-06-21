@@ -159,6 +159,7 @@ class _ChatScreenState extends State<ChatScreen> {
       final chId = payload['channel_id'] as String?;
       if (msgId != null && chId == widget.channel.id) {
         setState(() => _messages.removeWhere((m) => m.id == msgId));
+        _loadMessages();
       }
     } else if (type == 'reaction_add' && payload != null) {
       final msgId = payload['message_id'] as String?;
@@ -689,8 +690,10 @@ class _ChatScreenState extends State<ChatScreen> {
               // emoji row
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 4,
+                  runSpacing: 4,
                   children: [
                     for (final e in QuickReactionController.emojis)
                       GestureDetector(
