@@ -50,11 +50,13 @@ void main() async {
     debugPrint('PLATFORM ERROR: $error\n$stack');
     return true;
   };
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-  try {
-    await Firebase.initializeApp();
-  } catch (e) {
-    debugPrint('FIREBASE INIT ERROR: $e');
+  if (Platform.isAndroid) {
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    try {
+      await Firebase.initializeApp();
+    } catch (e) {
+      debugPrint('FIREBASE INIT ERROR: $e');
+    }
   }
   await JustAudioBackground.init(
     androidNotificationChannelId: 'com.barricade.audio',

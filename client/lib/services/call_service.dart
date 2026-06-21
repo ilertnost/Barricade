@@ -202,7 +202,15 @@ class CallService extends ChangeNotifier {
 
   Future<void> _setAudioRoute() async {
     if (_isDm) {
-      await Helper.setSpeakerphoneOn(false);
+      await _setSpeakerphone(false);
+    }
+  }
+
+  static Future<void> _setSpeakerphone(bool on) async {
+    try {
+      await Helper.setSpeakerphoneOn(on);
+    } catch (e) {
+      debugPrint('setSpeakerphone error: $e');
     }
   }
 
@@ -312,7 +320,7 @@ class CallService extends ChangeNotifier {
     if (_localStream == null) {
       await initLocalMedia(video: false);
     }
-    await Helper.setSpeakerphoneOn(true);
+    await _setSpeakerphone(true);
     _ws.voiceRoomJoin(channelId);
     notifyListeners();
   }
@@ -668,12 +676,12 @@ class CallService extends ChangeNotifier {
   }
 
   void _playRingback() {
-    Helper.setSpeakerphoneOn(true);
+    _setSpeakerphone(true);
     _ringPlayer.play(AssetSource('sounds/ringback.wav'));
   }
 
   void _playIncomingRing() {
-    Helper.setSpeakerphoneOn(true);
+    _setSpeakerphone(true);
     PlatformCallService.playRingtone();
   }
 
@@ -713,7 +721,7 @@ class CallService extends ChangeNotifier {
     if (_deafened) {
       _muted = true;
       _localStream?.getAudioTracks().forEach((t) => t.enabled = false);
-      await Helper.setSpeakerphoneOn(false);
+      await _setSpeakerphone(false);
     } else {
       _muted = false;
       _localStream?.getAudioTracks().forEach((t) => t.enabled = true);

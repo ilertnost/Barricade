@@ -50,13 +50,18 @@ class FileSaver {
     }
   }
 
-  /// Download and save to the public Downloads/Barricade folder via the native
-  /// MediaStore channel.
+  /// Download and save to the public Downloads/Barricade folder.
+  /// On non-Android, saves to a temporary location and opens the file.
   static Future<TransferResult> saveToDownloads(String fileId, FileInfo? info) async {
     final name = info?.originalName ?? fileId;
     final mime = info?.mimeType ?? 'application/octet-stream';
     try {
       final file = await _downloadToTemp(fileId, name);
+      if (!Platform.isAndroid) {
+        final res = await OpenFilex.open(file.path);
+        if (res.type == ResultType.done) return TransferResult(true, 'Файл открыт');
+        return TransferResult(false, res.message);
+      }
       final ok = await _channel.invokeMethod<bool>('saveToDownloads', {
         'path': file.path,
         'name': name,

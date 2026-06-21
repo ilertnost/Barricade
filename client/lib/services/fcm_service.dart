@@ -31,6 +31,7 @@ class FcmService {
   }
 
   Future<String?> getToken() async {
+    if (!Platform.isAndroid) return null;
     try {
       final messaging = FirebaseMessaging.instance;
       final token = await messaging.getToken();
@@ -52,6 +53,7 @@ class FcmService {
   }
 
   Future<void> setupListeners() async {
+    if (!Platform.isAndroid) return;
     final messaging = FirebaseMessaging.instance;
 
     // On cold start from a killed state, skip getInitialMessage entirely.
