@@ -1,8 +1,10 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../l10n/strings.dart';
 import '../services/api_service.dart';
+import '../services/locale_controller.dart';
 
 class LoginScreen extends StatefulWidget {
   final VoidCallback onLogin;
@@ -67,6 +69,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    context.watch<LocaleController>();
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
       body: Center(

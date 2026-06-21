@@ -108,6 +108,7 @@ class _SettingsBodyState extends State<SettingsBody> {
 
   @override
   Widget build(BuildContext context) {
+    context.watch<LocaleController>();
     return ListView(
         children: [
           if (_me != null) ...[

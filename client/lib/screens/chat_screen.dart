@@ -8,6 +8,7 @@ import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/ws_service.dart';
 import '../services/audio_player_service.dart';
+import '../services/locale_controller.dart';
 import '../services/file_saver.dart';
 import '../widgets/media_utils.dart';
 import '../widgets/user_avatar.dart';
@@ -452,6 +453,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    context.watch<LocaleController>();
     final filtered = _displayMessages;
     return PopScope(
       canPop: !_selectionMode,

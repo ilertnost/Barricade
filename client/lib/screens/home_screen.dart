@@ -4,6 +4,7 @@ import '../l10n/strings.dart';
 import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/ws_service.dart';
+import '../services/locale_controller.dart';
 import '../widgets/user_avatar.dart';
 import 'chat_screen.dart';
 import 'settings_screen.dart';
@@ -37,13 +38,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    context.watch<LocaleController>();
     return Scaffold(
       body: IndexedStack(
         index: _index,
         children: [
           _ChatsTab(me: _me, onProfileTap: _goToSettings),
-          const _ContactsTab(),
-          const SettingsScreen(),
+          _ContactsTab(),
+          SettingsScreen(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
