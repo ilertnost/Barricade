@@ -48,11 +48,13 @@ class _VoiceRoomPanelState extends State<_VoiceRoomPanel> {
   }
 
   void _ensurePreviewRenderer(CallService call) {
+    debugPrint('_ensurePreviewRenderer: isSharingScreen=${call.isSharingScreen}, screenStream=${call.screenStream != null}, hasRenderer=${_previewRenderer != null}');
     if (!call.isSharingScreen || call.screenStream == null) return;
     if (_previewRenderer != null) return;
     _previewRenderer = RTCVideoRenderer();
     _previewRenderer!.initialize().then((_) {
       _previewRenderer!.srcObject = call.screenStream;
+      debugPrint('preview renderer initialized, srcObject set');
       if (mounted) setState(() {});
     });
   }
@@ -81,11 +83,20 @@ class _VoiceRoomPanelState extends State<_VoiceRoomPanel> {
       ),
     );
     if (confirmed != true) return;
-    await call.startScreenShare();
+    try {
+      await call.startScreenShare();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка: $e')),
+        );
+      }
+      return;
+    }
     if (mounted) {
       if (!call.isSharingScreen) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Не удалось начать демонстрацию экрана')),
+          const SnackBar(content: Text('Не удалось начать демонстрацию экрана. Возможно, система не поддерживает захват экрана.')),
         );
       }
       setState(() => _ensurePreviewRenderer(call));

@@ -105,10 +105,19 @@ class _CallScreenState extends State<CallScreen> {
       ),
     );
     if (confirmed != true) return;
-    await call.startScreenShare();
+    try {
+      await call.startScreenShare();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка: $e')),
+        );
+      }
+      return;
+    }
     if (mounted && !call.isSharingScreen) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Не удалось начать демонстрацию экрана')),
+        const SnackBar(content: Text('Не удалось начать демонстрацию экрана. Возможно, система не поддерживает захват экрана.')),
       );
     }
   }
