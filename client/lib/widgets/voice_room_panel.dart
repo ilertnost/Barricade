@@ -153,8 +153,8 @@ class _VoiceRoomPanelState extends State<_VoiceRoomPanel> {
                     _ControlButton(
                       icon: call.isSharingScreen ? Icons.stop_screen_share : Icons.screen_share,
                       label: call.isSharingScreen ? 'Стоп' : 'Экран',
-                      active: call.isSharingScreen,
-                      iconColor: call.isSharingScreen ? Colors.green : null,
+                      active: true,
+                      iconColor: call.isSharingScreen ? Colors.green : Colors.white,
                       onTap: () => call.toggleScreenShare(),
                     ),
                     _ControlButton(

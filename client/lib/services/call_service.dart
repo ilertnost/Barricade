@@ -332,7 +332,6 @@ class CallService extends ChangeNotifier {
 
   Future<void> startScreenShare() async {
     if (_isSharingScreen) return;
-    if (_voiceChannelId != null) return;
 
     try {
       final constraints = <String, dynamic>{
@@ -360,7 +359,7 @@ class CallService extends ChangeNotifier {
     }
 
     // Replace video track in all peer connections via replaceTrack (no ICE restart).
-    for (final entry in _connections.entries) {
+    for (final entry in {..._connections.entries, ..._voiceConnections.entries}) {
       final sender = _videoSenders[entry.key];
       if (sender != null) {
         try {
@@ -371,10 +370,12 @@ class CallService extends ChangeNotifier {
       }
     }
 
-    // Notify all peers.
-    for (final peerId in _connections.keys) {
-      if (_channelId != null) {
-        _ws.sendWebRTC(_channelId!, 'screen_share_change', {'sharing': true}, peerId);
+    // Notify all peers (both DM call and voice room).
+    final peers = {..._connections.keys, ..._voiceConnections.keys};
+    final chId = _channelId ?? _voiceChannelId;
+    for (final peerId in peers) {
+      if (chId != null) {
+        _ws.sendWebRTC(chId, 'screen_share_change', {'sharing': true}, peerId);
       }
     }
 
@@ -388,7 +389,7 @@ class CallService extends ChangeNotifier {
     // Restore camera video track.
     final cameraTrack = _localStream?.getVideoTracks().firstOrNull;
     if (cameraTrack != null) {
-      for (final entry in _connections.entries) {
+      for (final entry in {..._connections.entries, ..._voiceConnections.entries}) {
         final sender = _videoSenders[entry.key];
         if (sender != null) {
           try {
@@ -407,9 +408,11 @@ class CallService extends ChangeNotifier {
     _isSharingScreen = false;
 
     // Notify all peers.
-    for (final peerId in _connections.keys) {
-      if (_channelId != null) {
-        _ws.sendWebRTC(_channelId!, 'screen_share_change', {'sharing': false}, peerId);
+    final peers = {..._connections.keys, ..._voiceConnections.keys};
+    final chId = _channelId ?? _voiceChannelId;
+    for (final peerId in peers) {
+      if (chId != null) {
+        _ws.sendWebRTC(chId, 'screen_share_change', {'sharing': false}, peerId);
       }
     }
 
@@ -453,6 +456,7 @@ class CallService extends ChangeNotifier {
   void _cleanupVoiceRoom() {
     for (final e in _voiceConnections.entries) {
       e.value.close();
+      _videoSenders.remove(e.key);
     }
     _voiceConnections.clear();
     for (final e in _voiceRenderers.entries) {
@@ -504,6 +508,7 @@ class CallService extends ChangeNotifier {
       _voiceConnections[userId]!.close();
       _voiceConnections.remove(userId);
     }
+    _videoSenders.remove(userId);
     if (_voiceRenderers.containsKey(userId)) {
       _voiceRenderers[userId]!.dispose();
       _voiceRenderers.remove(userId);
@@ -537,7 +542,10 @@ class CallService extends ChangeNotifier {
 
     if (_localStream != null) {
       for (final track in _localStream!.getTracks()) {
-        pc.addTrack(track, _localStream!);
+        final sender = await pc.addTrack(track, _localStream!);
+        if (sender != null && track.kind == 'video') {
+          _videoSenders[peerId] = sender;
+        }
       }
     }
 
@@ -822,6 +830,7 @@ class CallService extends ChangeNotifier {
     } else if (_voiceConnections.containsKey(userId)) {
       await _voiceConnections[userId]?.close();
       _voiceConnections.remove(userId);
+      _videoSenders.remove(userId);
       if (_voiceRenderers.containsKey(userId)) {
         _voiceRenderers[userId]!.dispose();
         _voiceRenderers.remove(userId);
