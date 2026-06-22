@@ -482,15 +482,21 @@ class _ThemeModeTile extends StatelessWidget {
           const Icon(Icons.brightness_6),
           const SizedBox(width: 16),
           Expanded(child: Text(Strings.t('theme.theme'))),
-          SegmentedButton<ThemeMode>(
-            segments: [
-              ButtonSegment(value: ThemeMode.system, icon: const Icon(Icons.smartphone), tooltip: Strings.t('theme.system')),
-              ButtonSegment(value: ThemeMode.light, icon: const Icon(Icons.light_mode), tooltip: Strings.t('theme.light')),
-              ButtonSegment(value: ThemeMode.dark, icon: const Icon(Icons.dark_mode), tooltip: Strings.t('theme.dark')),
-            ],
-            selected: {ctrl.mode},
-            showSelectedIcon: false,
-            onSelectionChanged: (s) => ctrl.setMode(s.first),
+          const SizedBox(width: 8),
+          Flexible(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SegmentedButton<ThemeMode>(
+                segments: [
+                  ButtonSegment(value: ThemeMode.system, icon: const Icon(Icons.smartphone), tooltip: Strings.t('theme.system')),
+                  ButtonSegment(value: ThemeMode.light, icon: const Icon(Icons.light_mode), tooltip: Strings.t('theme.light')),
+                  ButtonSegment(value: ThemeMode.dark, icon: const Icon(Icons.dark_mode), tooltip: Strings.t('theme.dark')),
+                ],
+                selected: {ctrl.mode},
+                showSelectedIcon: false,
+                onSelectionChanged: (s) => ctrl.setMode(s.first),
+              ),
+            ),
           ),
         ],
       ),
