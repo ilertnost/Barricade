@@ -87,47 +87,57 @@ class MiniPlayer extends StatelessWidget {
                     ],
                   ),
                 ),
-                // Shuffle
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  tooltip: 'Перемешать',
-                  icon: Icon(Icons.shuffle,
-                      color: audio.shuffleEnabled ? cs.primary : cs.outline),
-                  onPressed: audio.toggleShuffle,
-                ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  tooltip: 'Предыдущий',
-                  icon: const Icon(Icons.skip_previous),
-                  onPressed: audio.previous,
-                ),
-                IconButton(
-                  tooltip: audio.isPlaying ? 'Пауза' : 'Играть',
-                  icon: Icon(audio.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                      size: 34, color: cs.primary),
-                  onPressed: audio.toggle,
-                ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  tooltip: 'Следующий',
-                  icon: const Icon(Icons.skip_next),
-                  onPressed: audio.next,
-                ),
-                // Repeat off / all / one
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  tooltip: 'Повтор',
-                  icon: Icon(
-                    audio.loopMode == LoopMode.one ? Icons.repeat_one : Icons.repeat,
-                    color: audio.loopMode == LoopMode.off ? cs.outline : cs.primary,
+                // Scrollable controls to prevent overflow on narrow screens
+                SizedBox(
+                  width: 240,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          tooltip: 'Перемешать',
+                          icon: Icon(Icons.shuffle,
+                              color: audio.shuffleEnabled ? cs.primary : cs.outline),
+                          onPressed: audio.toggleShuffle,
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          tooltip: 'Предыдущий',
+                          icon: const Icon(Icons.skip_previous),
+                          onPressed: audio.previous,
+                        ),
+                        IconButton(
+                          tooltip: audio.isPlaying ? 'Пауза' : 'Играть',
+                          icon: Icon(audio.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                              size: 34, color: cs.primary),
+                          onPressed: audio.toggle,
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          tooltip: 'Следующий',
+                          icon: const Icon(Icons.skip_next),
+                          onPressed: audio.next,
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          tooltip: 'Повтор',
+                          icon: Icon(
+                            audio.loopMode == LoopMode.one ? Icons.repeat_one : Icons.repeat,
+                            color: audio.loopMode == LoopMode.off ? cs.outline : cs.primary,
+                          ),
+                          onPressed: audio.cycleLoopMode,
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          tooltip: 'Закрыть',
+                          icon: const Icon(Icons.close),
+                          onPressed: audio.stop,
+                        ),
+                      ],
+                    ),
                   ),
-                  onPressed: audio.cycleLoopMode,
-                ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  tooltip: 'Закрыть',
-                  icon: const Icon(Icons.close),
-                  onPressed: audio.stop,
                 ),
               ],
             ),
