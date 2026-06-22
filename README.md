@@ -10,7 +10,10 @@ Self-hosted messenger (LAN alpha, will be VPS-hosted). Go server + Flutter clien
 - Audio player with queue, repeat, shuffle, background playback
 - Channels: DM, group, public/private guilds
 - Material You themes (system/light/dark + accent color)
-- Russian interface
+- Audio/video calls + screen sharing (X11 on Linux; Wayland capture pending a PipeWire-enabled libwebrtc)
+- Desktop-adaptive UI: two-pane master/detail + navigation rail on wide windows, bottom nav on narrow
+- Telegram-style input bar: morphing send/record button (tap toggles voice/circle)
+- Russian + English interface
 
 ## Architecture
 

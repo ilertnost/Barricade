@@ -25,8 +25,9 @@ import '../widgets/voice_room_panel.dart';
 class ChatScreen extends StatefulWidget {
   final Channel channel;
   final String? filterSenderId;
+  final bool embedded; // true when shown inside a desktop detail pane (no back button)
 
-  const ChatScreen({super.key, required this.channel, this.filterSenderId});
+  const ChatScreen({super.key, required this.channel, this.filterSenderId, this.embedded = false});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -44,11 +45,14 @@ class _ChatScreenState extends State<ChatScreen> {
   String _peerName = '';
   String? _peerId;
   bool _isContact = false;
+  bool _hasText = false;
+  bool _circleMode = false; // false = voice, true = video circle
 
   @override
   void initState() {
     super.initState();
     _filterSenderId = widget.filterSenderId;
+    _msgCtrl.addListener(_onTextChanged);
     _loadMessages();
     context.read<WsService>().addListener(_handleWsMessage);
     context.read<WsService>().joinChannel(widget.channel.id);
@@ -528,7 +532,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 : _formatLastSeen(_peerLastSeen))
             : typeLabel;
     return AppBar(
-      titleSpacing: 4,
+      titleSpacing: widget.embedded ? 12 : 4,
+      automaticallyImplyLeading: !widget.embedded,
       title: InkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: () => Navigator.push(context, MaterialPageRoute(
@@ -601,6 +606,11 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  void _onTextChanged() {
+    final has = _msgCtrl.text.trim().isNotEmpty;
+    if (has != _hasText) setState(() => _hasText = has);
+  }
+
   Widget _buildInputBar(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Container(
@@ -613,6 +623,7 @@ class _ChatScreenState extends State<ChatScreen> {
           children: [
             IconButton(
               icon: const Icon(Icons.add_circle_outline),
+              tooltip: Strings.t('chat.media.gallery'),
               onPressed: _showAttachmentSheet,
             ),
             Expanded(
@@ -626,6 +637,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   controller: _msgCtrl,
                   minLines: 1,
                   maxLines: 5,
+                  textInputAction: TextInputAction.newline,
                   decoration: InputDecoration(
                     hintText: Strings.t('chat.hint'),
                     border: InputBorder.none,
@@ -637,13 +649,41 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
             const SizedBox(width: 4),
-            IconButton.filled(
-              icon: const Icon(Icons.send),
-              onPressed: _sendMessage,
-            ),
+            _buildSendOrRecord(context),
           ],
         ),
       ),
+    );
+  }
+
+  /// Telegram-style morphing right button: send when there's text, otherwise a
+  /// record button that toggles voice/circle on tap and opens the recorder on hold.
+  Widget _buildSendOrRecord(BuildContext context) {
+    final Widget child;
+    if (_hasText) {
+      child = IconButton.filled(
+        key: const ValueKey('send'),
+        icon: const Icon(Icons.send),
+        onPressed: _sendMessage,
+      );
+    } else {
+      child = GestureDetector(
+        key: ValueKey(_circleMode ? 'circle' : 'voice'),
+        // Tap toggles voice <-> circle mode (like Telegram).
+        onTap: () => setState(() => _circleMode = !_circleMode),
+        // Hold to record in the current mode.
+        onLongPress: () => _circleMode ? _showVideoCircle() : _showVoiceRecorder(),
+        child: IconButton(
+          icon: Icon(_circleMode ? Icons.radio_button_checked : Icons.mic),
+          tooltip: _circleMode ? Strings.t('chat.media.circle') : Strings.t('chat.media.voice'),
+          onPressed: () => setState(() => _circleMode = !_circleMode),
+        ),
+      );
+    }
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 180),
+      transitionBuilder: (c, anim) => ScaleTransition(scale: anim, child: c),
+      child: child,
     );
   }
 

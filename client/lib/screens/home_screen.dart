@@ -110,76 +110,145 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _goToSettings() => setState(() => _index = 3);
 
-  @override
-  Widget build(BuildContext context) {
-    context.watch<LocaleController>();
-    return Scaffold(
-      body: Column(
+  // Desktop master/detail: selected chat shown in the right pane.
+  Channel? _selected;
+  void _openInPane(Channel ch) => setState(() => _selected = ch);
+
+  List<({IconData icon, IconData selected, String label})> get _navItems => [
+        (icon: Icons.forum_outlined, selected: Icons.forum, label: Strings.t('common.chats')),
+        (icon: Icons.people_outline, selected: Icons.people, label: Strings.t('common.contacts')),
+        (icon: Icons.history, selected: Icons.history, label: 'Звонки'),
+        (icon: Icons.settings_outlined, selected: Icons.settings, label: Strings.t('settings.title')),
+      ];
+
+  Widget _tabs({void Function(Channel)? onOpen}) => IndexedStack(
+        index: _index,
         children: [
-          Expanded(
-            child: IndexedStack(
-              index: _index,
+          _ChatsTab(me: _me, onProfileTap: _goToSettings, onOpenChannel: onOpen),
+          _ContactsTab(onOpenChannel: onOpen),
+          _CallLogTab(),
+          SettingsScreen(),
+        ],
+      );
+
+  Widget _voiceBar(BuildContext context) {
+    return Consumer<CallService>(
+      builder: (_, call, __) {
+        if (!call.inVoiceRoom || call.voiceChannelId == null) return const SizedBox.shrink();
+        final cs = Theme.of(context).colorScheme;
+        return GestureDetector(
+          onTap: () => showVoiceRoomPanel(context, channelName: 'Голосовой канал'),
+          child: Container(
+            width: double.infinity,
+            color: Colors.green.withValues(alpha: 0.15),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
               children: [
-                _ChatsTab(me: _me, onProfileTap: _goToSettings),
-                _ContactsTab(),
-                _CallLogTab(),
-                SettingsScreen(),
+                Icon(Icons.headset, size: 18, color: Colors.green),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    call.voiceParticipants.isEmpty
+                        ? 'В голосовом канале'
+                        : 'В голосовом канале (${call.voiceParticipants.length})',
+                    style: TextStyle(fontSize: 13, color: Colors.green.shade700),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => call.leaveVoiceRoom(),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.red,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text('Выйти', style: TextStyle(fontSize: 12)),
+                ),
+                const SizedBox(width: 4),
+                Icon(Icons.keyboard_arrow_up, size: 18, color: cs.outline),
               ],
             ),
           ),
-          // Voice room bar — visible from any tab when connected
-          Consumer<CallService>(
-            builder: (_, call, __) {
-              if (!call.inVoiceRoom || call.voiceChannelId == null) {
-                return const SizedBox.shrink();
-              }
-              final cs = Theme.of(context).colorScheme;
-              return GestureDetector(
-                onTap: () => showVoiceRoomPanel(context, channelName: 'Голосовой канал'),
-                child: Container(
-                  width: double.infinity,
-                  color: Colors.green.withValues(alpha: 0.15),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  child: Row(
-                    children: [
-                      Icon(Icons.headset, size: 18, color: Colors.green),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          call.voiceParticipants.isEmpty
-                              ? 'В голосовом канале'
-                              : 'В голосовом канале (${call.voiceParticipants.length})',
-                          style: TextStyle(fontSize: 13, color: Colors.green.shade700),
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: () => call.leaveVoiceRoom(),
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.red,
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        child: const Text('Выйти', style: TextStyle(fontSize: 12)),
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(Icons.keyboard_arrow_up, size: 18, color: cs.outline),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    context.watch<LocaleController>();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= 900) return _buildDesktop(context);
+        return _buildMobile(context);
+      },
+    );
+  }
+
+  Widget _buildMobile(BuildContext context) {
+    return Scaffold(
+      body: Column(
+        children: [
+          Expanded(child: _tabs()), // null onOpen → tabs push full-screen
+          _voiceBar(context),
         ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
         destinations: [
-          NavigationDestination(icon: Icon(Icons.forum_outlined), selectedIcon: Icon(Icons.forum), label: Strings.t('common.chats')),
-          NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: Strings.t('common.contacts')),
-          NavigationDestination(icon: Icon(Icons.history), selectedIcon: Icon(Icons.history), label: 'Звонки'),
-          NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: Strings.t('settings.title')),
+          for (final it in _navItems)
+            NavigationDestination(icon: Icon(it.icon), selectedIcon: Icon(it.selected), label: it.label),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDesktop(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Scaffold(
+      body: Row(
+        children: [
+          NavigationRail(
+            selectedIndex: _index,
+            onDestinationSelected: (i) => setState(() => _index = i),
+            leading: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: GestureDetector(
+                onTap: _goToSettings,
+                child: UserAvatar(name: _me?.displayName ?? _me?.username ?? '?', avatarId: _me?.avatarId, radius: 18),
+              ),
+            ),
+            destinations: [
+              for (final it in _navItems)
+                NavigationRailDestination(icon: Icon(it.icon), selectedIcon: Icon(it.selected), label: Text(it.label)),
+            ],
+          ),
+          const VerticalDivider(width: 1),
+          // Master pane: list for the selected section + voice bar.
+          SizedBox(
+            width: 340,
+            child: Column(children: [Expanded(child: _tabs(onOpen: _openInPane)), _voiceBar(context)]),
+          ),
+          const VerticalDivider(width: 1),
+          // Detail pane: open chat or placeholder.
+          Expanded(
+            child: _selected == null
+                ? Container(
+                    color: cs.surfaceContainerLow,
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.forum_outlined, size: 64, color: cs.outlineVariant),
+                          const SizedBox(height: 12),
+                          Text('Выберите чат', style: TextStyle(color: cs.outline, fontSize: 16)),
+                        ],
+                      ),
+                    ),
+                  )
+                : ChatScreen(key: ValueKey(_selected!.id), channel: _selected!, embedded: true),
+          ),
         ],
       ),
     );
@@ -193,7 +262,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 class _ChatsTab extends StatefulWidget {
   final User? me;
   final VoidCallback onProfileTap;
-  const _ChatsTab({required this.me, required this.onProfileTap});
+  final void Function(Channel)? onOpenChannel;
+  const _ChatsTab({required this.me, required this.onProfileTap, this.onOpenChannel});
 
   @override
   State<_ChatsTab> createState() => _ChatsTabState();
@@ -289,11 +359,16 @@ class _ChatsTabState extends State<_ChatsTab> {
   }
 
   Future<void> _openChat(Channel ch) async {
-    setState(() => _openChatId = ch.id);
-    _unreadCounts.remove(ch.id);
+    setState(() {
+      _openChatId = ch.id;
+      _unreadCounts.remove(ch.id);
+    });
+    // Desktop: open in the detail pane instead of pushing a full-screen route.
+    if (widget.onOpenChannel != null) {
+      widget.onOpenChannel!(ch);
+      return;
+    }
     await Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(channel: ch)));
-    // ChatScreen took over the WS handler — restore ours and refresh.
-    _bindWs();
     _load();
     setState(() => _openChatId = null);
   }
@@ -455,7 +530,8 @@ class _ChatsTabState extends State<_ChatsTab> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _ContactsTab extends StatefulWidget {
-  const _ContactsTab();
+  final void Function(Channel)? onOpenChannel;
+  const _ContactsTab({this.onOpenChannel});
 
   @override
   State<_ContactsTab> createState() => _ContactsTabState();
@@ -491,7 +567,11 @@ class _ContactsTabState extends State<_ContactsTab> {
     try {
       final ch = await _resolveDmChannel(peerId, displayName);
       if (mounted) {
-        Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(channel: ch)));
+        if (widget.onOpenChannel != null) {
+          widget.onOpenChannel!(ch);
+        } else {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(channel: ch)));
+        }
       }
     } catch (e) {
       if (mounted) {

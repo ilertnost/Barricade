@@ -24,6 +24,7 @@ ThemeData buildTheme(ColorScheme scheme) {
     useMaterial3: true,
     colorScheme: scheme,
     scaffoldBackgroundColor: scheme.surface,
+    visualDensity: VisualDensity.adaptivePlatformDensity,
     appBarTheme: AppBarTheme(
       backgroundColor: scheme.surface,
       foregroundColor: scheme.onSurface,
@@ -96,6 +97,29 @@ ThemeData buildTheme(ColorScheme scheme) {
     dividerTheme: DividerThemeData(
       color: scheme.outlineVariant.withValues(alpha: isDark ? 0.4 : 0.6),
       space: 1,
+    ),
+    navigationRailTheme: NavigationRailThemeData(
+      backgroundColor: scheme.surface,
+      indicatorColor: scheme.primaryContainer,
+      selectedIconTheme: IconThemeData(color: scheme.onPrimaryContainer),
+      unselectedIconTheme: IconThemeData(color: scheme.onSurfaceVariant),
+      labelType: NavigationRailLabelType.all,
+      selectedLabelTextStyle: TextStyle(color: scheme.onSurface, fontSize: 12, fontWeight: FontWeight.w600),
+      unselectedLabelTextStyle: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+    ),
+    segmentedButtonTheme: SegmentedButtonThemeData(
+      style: ButtonStyle(
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
+        ),
+      ),
+    ),
+    tooltipTheme: TooltipThemeData(
+      decoration: BoxDecoration(
+        color: scheme.inverseSurface,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+      ),
+      textStyle: TextStyle(color: scheme.onInverseSurface, fontSize: 12),
     ),
   );
 }
