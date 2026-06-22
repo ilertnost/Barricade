@@ -69,9 +69,9 @@ Config: `client/lib/config.dart` - set `serverUrl` to your server IP.
 - [x] Audio player (queue, repeat, shuffle, background)
 - [x] Material You themes
 - [x] Password recovery
-- [ ] Reactions
+- [x] Reactions
 - [ ] UI redesign (Discord x Telegram style)
-- [ ] Audio/video calls (1-on-1 -> groups up to 5 -> screen sharing)
+- [x] Audio/video calls (1-on-1 -> groups up to 5 -> screen sharing)
 - [ ] Cross-platform: Linux, Windows, iOS, macOS
 
 ## License
