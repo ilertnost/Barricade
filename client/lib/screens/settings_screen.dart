@@ -13,6 +13,7 @@ import '../services/theme_controller.dart';
 import '../services/locale_controller.dart';
 import '../services/quick_reaction_controller.dart';
 import '../widgets/media_utils.dart';
+import '../widgets/chat_settings.dart';
 import '../main.dart' show AppState;
 import 'chat_screen.dart';
 
@@ -215,6 +216,12 @@ class _SettingsBodyState extends State<SettingsBody> {
 
         // ── Приватность ──
         const _PrivacySection(),
+
+        const Divider(),
+
+        // ── Настройки чатов ──
+        _SectionHeader(Strings.t('chat_settings.title')),
+        const ChatSettingsSection(),
 
         const Divider(),
 
