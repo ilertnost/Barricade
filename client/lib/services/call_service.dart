@@ -334,11 +334,23 @@ class CallService extends ChangeNotifier {
     if (_isSharingScreen) return;
 
     try {
+      // On desktop (Linux/Windows/macOS) flutter_webrtc has no system picker:
+      // getDisplayMedia resolves the source by id from the list built by
+      // getSources(). We MUST enumerate screens first and pass an explicit
+      // deviceId, otherwise the native side reports "source not found".
+      final sources = await desktopCapturer.getSources(types: [SourceType.Screen]);
+      debugPrint('screen sources: ${sources.length} -> ${sources.map((s) => '${s.id}:${s.name}').toList()}');
+      if (sources.isEmpty) {
+        debugPrint('startScreenShare: no screen sources available');
+        return;
+      }
+      final source = sources.first;
       final constraints = <String, dynamic>{
         'video': {
+          'deviceId': {'exact': source.id},
+          'mandatory': {'frameRate': 60.0},
           'width': {'ideal': 1920},
           'height': {'ideal': 1080},
-          'frameRate': {'ideal': 60},
         },
         'audio': false,
       };
@@ -346,17 +358,7 @@ class CallService extends ChangeNotifier {
       debugPrint('getDisplayMedia OK, tracks: ${_screenStream!.getVideoTracks().length}');
     } catch (e) {
       debugPrint('startScreenShare getDisplayMedia error: $e');
-      try {
-        // Fallback: try without frameRate constraint
-        final fallback = <String, dynamic>{
-          'video': true,
-          'audio': false,
-        };
-        _screenStream = await navigator.mediaDevices.getDisplayMedia(fallback);
-      } catch (e2) {
-        debugPrint('startScreenShare fallback error: $e2');
-        return;
-      }
+      return;
     }
 
     _isSharingScreen = true;
