@@ -225,7 +225,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ],
           ),
           const VerticalDivider(width: 1),
-          // Master pane: list for the selected section + voice bar.
           SizedBox(
             width: 340,
             child: Column(children: [Expanded(child: _tabs(onOpen: _openInPane)), _voiceBar(context)]),

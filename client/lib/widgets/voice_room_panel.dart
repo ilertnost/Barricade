@@ -4,7 +4,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 import '../services/api_service.dart';
 import '../services/call_service.dart';
-import '../services/ws_service.dart';
+import 'screen_source_picker.dart';
 import 'user_avatar.dart';
 
 void showVoiceRoomPanel(BuildContext context, {required String channelName}) {
@@ -30,7 +30,6 @@ class _VoiceRoomPanel extends StatefulWidget {
 class _VoiceRoomPanelState extends State<_VoiceRoomPanel> {
   final Map<String, double> _localVolumes = {};
   RTCVideoRenderer? _previewRenderer;
-  bool _hovering = false;
 
   @override
   void initState() {
@@ -65,24 +64,9 @@ class _VoiceRoomPanelState extends State<_VoiceRoomPanel> {
       if (mounted) setState(() {});
       return;
     }
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Демонстрация экрана'),
-        content: const Text('Начать демонстрацию экрана?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Отмена'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Начать'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+    await CallService.pickScreenSource();
+    final confirmed = await ScreenShareConfirmDialog.show(context);
+    if (!confirmed) return;
     try {
       await call.startScreenShare();
     } catch (e) {
@@ -96,7 +80,7 @@ class _VoiceRoomPanelState extends State<_VoiceRoomPanel> {
     if (mounted) {
       if (!call.isSharingScreen) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Не удалось начать демонстрацию экрана. Возможно, система не поддерживает захват экрана.')),
+          const SnackBar(content: Text('Не удалось начать демонстрацию экрана.')),
         );
       }
       setState(() => _ensurePreviewRenderer(call));
@@ -229,7 +213,7 @@ class _VoiceRoomPanelState extends State<_VoiceRoomPanel> {
                       icon: call.isSharingScreen ? Icons.stop_screen_share : Icons.screen_share,
                       label: call.isSharingScreen ? 'Стоп' : 'Экран',
                       active: true,
-                      iconColor: call.isSharingScreen ? Colors.green : Colors.white,
+                      iconColor: call.isSharingScreen ? Colors.green : cs.onSurface,
                       onTap: () => _onScreenShareTap(call),
                     ),
                     _ControlButton(

@@ -6,6 +6,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 import '../l10n/strings.dart';
 import '../services/call_service.dart';
+import '../widgets/screen_source_picker.dart';
 
 class CallScreen extends StatefulWidget {
   final String channelId;
@@ -87,24 +88,12 @@ class _CallScreenState extends State<CallScreen> {
       if (mounted) setState(() {});
       return;
     }
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Демонстрация экрана'),
-        content: const Text('Начать демонстрацию экрана?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Отмена'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Начать'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+    // Call getSources() FIRST — shows portal dialog (source picker) on Wayland.
+    // This establishes the portal session so that startScreenShare's
+    // getDisplayMedia() can skip its own dialog.
+    await CallService.pickScreenSource();
+    final confirmed = await ScreenShareConfirmDialog.show(context);
+    if (!confirmed) return;
     try {
       await call.startScreenShare();
     } catch (e) {
@@ -117,7 +106,7 @@ class _CallScreenState extends State<CallScreen> {
     }
     if (mounted && !call.isSharingScreen) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Не удалось начать демонстрацию экрана. Возможно, система не поддерживает захват экрана.')),
+        const SnackBar(content: Text('Не удалось начать демонстрацию экрана.')),
       );
     }
   }
@@ -378,7 +367,7 @@ class _CallScreenState extends State<CallScreen> {
           ),
           _CtrlBtn(
             icon: call.isSharingScreen ? Icons.stop_screen_share : Icons.screen_share,
-            color: call.isSharingScreen ? Colors.green : Colors.white,
+            color: call.isSharingScreen ? Colors.green : Colors.white70,
             onTap: () => _onScreenShareTap(call),
           ),
           _CtrlBtn(
