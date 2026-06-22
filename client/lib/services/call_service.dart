@@ -329,34 +329,42 @@ class CallService extends ChangeNotifier {
   }
 
   // ── Screen sharing ──
+  static String? _savedScreenId;
+
+  /// Call [desktopCapturer.getSources] once per session to populate the
+  /// native source cache. On Wayland this shows an xdg-desktop-portal dialog.
+  /// After this, [startScreenShare] can capture without a second dialog.
+  static Future<void> pickScreenSource() async {
+    if (_savedScreenId != null || Platform.isAndroid) return;
+    debugPrint('PICK_SOURCE: getSources...');
+    try {
+      final sources = await desktopCapturer.getSources(types: [SourceType.Screen]);
+      _savedScreenId = sources.firstOrNull?.id;
+      debugPrint('PICK_SOURCE: saved id="${_savedScreenId}"');
+    } catch (e) {
+      debugPrint('PICK_SOURCE: error: $e');
+    }
+  }
 
   Future<void> startScreenShare() async {
     if (_isSharingScreen) return;
 
     try {
-      final constraints = <String, dynamic>{
-        'video': {
-          'width': {'ideal': 1920},
-          'height': {'ideal': 1080},
-          'frameRate': {'ideal': 60},
-        },
-        'audio': false,
+      final video = <String, dynamic>{
+        'frameRate': 60.0,
+        'width': {'ideal': 1920},
+        'height': {'ideal': 1080},
       };
-      _screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
-      debugPrint('getDisplayMedia OK, tracks: ${_screenStream!.getVideoTracks().length}');
-    } catch (e) {
-      debugPrint('startScreenShare getDisplayMedia error: $e');
-      try {
-        // Fallback: try without frameRate constraint
-        final fallback = <String, dynamic>{
-          'video': true,
-          'audio': false,
-        };
-        _screenStream = await navigator.mediaDevices.getDisplayMedia(fallback);
-      } catch (e2) {
-        debugPrint('startScreenShare fallback error: $e2');
-        return;
+      if (_savedScreenId != null) {
+        video['deviceId'] = {'exact': _savedScreenId};
       }
+      final constraints = <String, dynamic>{'video': video, 'audio': false};
+      debugPrint('START_SHARE: getDisplayMedia with id="${_savedScreenId}"');
+      _screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
+      debugPrint('START_SHARE: OK, tracks=${_screenStream!.getVideoTracks().length}');
+    } catch (e, st) {
+      debugPrint('SCREEN_SHARE_ERROR: $e\n$st');
+      return;
     }
 
     _isSharingScreen = true;
@@ -457,6 +465,7 @@ class CallService extends ChangeNotifier {
 
   Future<void> leaveVoiceRoom() async {
     if (!_inVoiceRoom) return;
+    if (_isSharingScreen) await stopScreenShare();
     if (_voiceChannelId != null) {
       _ws.voiceRoomLeave(_voiceChannelId!);
     }

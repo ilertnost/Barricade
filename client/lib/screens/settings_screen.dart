@@ -9,6 +9,7 @@ import '../services/ws_service.dart';
 import '../services/theme_controller.dart';
 import '../services/locale_controller.dart';
 import '../services/quick_reaction_controller.dart';
+import '../widgets/chat_settings.dart';
 import '../main.dart' show AppState;
 import 'chat_screen.dart';
 
@@ -160,6 +161,9 @@ class _SettingsBodyState extends State<SettingsBody> {
           const _LanguageTile(),
           const Divider(),
           const _PrivacySection(),
+          const Divider(),
+          _SectionHeader(Strings.t('chat_settings.title')),
+          const ChatSettingsSection(),
           const Divider(),
           _SectionHeader(Strings.t('theme.title')),
           const _ThemeModeTile(),
