@@ -10,7 +10,13 @@ Self-hosted messenger (LAN alpha, will be VPS-hosted). Go server + Flutter clien
 - Audio player with queue, repeat, shuffle, background playback
 - Channels: DM, group, public/private guilds
 - Material You themes (system/light/dark + accent color)
-- Russian interface
+- Audio/video calls (1-on-1) + screen sharing (1080/60) + voice rooms (mesh)
+- Mute channels/DMs, blacklist users
+- Password recovery via recovery phrase
+- Contacts: add/remove/search
+- FCM push notifications
+- Russian + English interface
+- Android (primary target)
 
 ## Architecture
 
@@ -20,7 +26,7 @@ Barricade/
 └── client/      # Flutter app (Material 3, dark theme)
 ```
 
-Currently alpha - server runs on an Android phone (ARM64) in LAN. Future builds will run on a VPS/host for remote access.
+Currently alpha — server runs on an Android phone (ARM64) in LAN. Future builds will run on a VPS/host for remote access.
 
 ## Quick Start
 
@@ -33,7 +39,7 @@ adb push barricade-server-arm64 /data/local/tmp/
 adb shell "DATA_DIR=/data/local/tmp/bcdata PORT=8080 nohup /data/local/tmp/barricade-server-arm64 &"
 ```
 
-### Client
+### Client (Android)
 
 ```bash
 cd client
@@ -41,20 +47,20 @@ flutter build apk --release --target-platform android-arm64
 adb install -r build/app/outputs/flutter-apk/app-release.apk
 ```
 
-Config: `client/lib/config.dart` - set `serverUrl` to your server IP.
+Config: `client/lib/config.dart` — set `serverUrl` to your server IP.
 
 ## API
 
-- `POST /api/auth/register` - register (optional `recovery_phrase`)
-- `POST /api/auth/login` - login
-- `POST /api/auth/reset-password` - reset password via recovery phrase
-- `POST /api/auth/change-password` - change password (authenticated)
-- `GET/PATCH /api/users/@me` - profile
-- `GET/POST /api/channels` - channel management
-- `GET /api/channels/{id}/messages` - message history
-- `POST /api/files/upload` - file upload (multipart, 2 GB limit)
-- `GET /api/files/{id}` - download with HTTP Range support
-- `WS /ws?token=...` - real-time messaging
+- `POST /api/auth/register` — register (optional `recovery_phrase`)
+- `POST /api/auth/login` — login
+- `POST /api/auth/reset-password` — reset password via recovery phrase
+- `POST /api/auth/change-password` — change password (authenticated)
+- `GET/PATCH /api/users/@me` — profile
+- `GET/POST /api/channels` — channel management
+- `GET /api/channels/{id}/messages` — message history
+- `POST /api/files/upload` — file upload (multipart, 2 GB limit)
+- `GET /api/files/{id}` — download with HTTP Range support
+- `WS /ws?token=...` — real-time messaging
 
 ## Tech Stack
 
@@ -62,6 +68,7 @@ Config: `client/lib/config.dart` - set `serverUrl` to your server IP.
 - **Client**: Flutter, Material 3, Provider state management
 - **Audio**: just_audio + just_audio_background
 - **Video**: video_player
+- **Calls**: flutter_webrtc
 
 ## Roadmap
 
@@ -69,10 +76,11 @@ Config: `client/lib/config.dart` - set `serverUrl` to your server IP.
 - [x] Audio player (queue, repeat, shuffle, background)
 - [x] Material You themes
 - [x] Password recovery
+- [x] Audio/video calls + screen sharing + voice rooms
 - [ ] Reactions
 - [ ] UI redesign (Discord x Telegram style)
-- [ ] Audio/video calls (1-on-1 -> groups up to 5 -> screen sharing)
-- [ ] Cross-platform: Linux, Windows, iOS, macOS
+- [ ] Screen share viewing (Discord-style picture-in-picture)
+- [ ] Chat settings (per-channel)
 
 ## License
 
