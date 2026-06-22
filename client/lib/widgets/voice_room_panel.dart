@@ -153,11 +153,17 @@ class _VoiceRoomPanelState extends State<_VoiceRoomPanel> {
                   controller: scrollCtrl,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   children: [
-                    // Screen share mini preview
+                    // Local screen share preview
                     if (call.isSharingScreen && _previewRenderer != null)
                       _ScreenPreview(
                         renderer: _previewRenderer!,
                         isDesktop: !Platform.isAndroid,
+                        onFullscreenTap: () => _toggleFullscreen(call),
+                      ),
+                    // Remote screen share
+                    if (call.sharingPeerId != null && call.screenShareStreams[call.sharingPeerId] != null)
+                      _RemoteScreenPreview(
+                        stream: call.screenShareStreams[call.sharingPeerId]!,
                         onFullscreenTap: () => _toggleFullscreen(call),
                       ),
                     // Self tile
@@ -271,9 +277,113 @@ class _ScreenPreview extends StatelessWidget {
         color: Colors.black,
         borderRadius: BorderRadius.circular(8),
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: RTCVideoView(renderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain),
+      child: Stack(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: RTCVideoView(renderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain),
+          ),
+          Positioned(
+            top: 4,
+            right: 4,
+            child: Material(
+              color: Colors.black54,
+              borderRadius: BorderRadius.circular(20),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(20),
+                onTap: onFullscreenTap,
+                child: const Padding(
+                  padding: EdgeInsets.all(6),
+                  child: Icon(Icons.fullscreen, color: Colors.white, size: 20),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RemoteScreenPreview extends StatefulWidget {
+  final MediaStream stream;
+  final VoidCallback onFullscreenTap;
+  const _RemoteScreenPreview({required this.stream, required this.onFullscreenTap});
+
+  @override
+  State<_RemoteScreenPreview> createState() => _RemoteScreenPreviewState();
+}
+
+class _RemoteScreenPreviewState extends State<_RemoteScreenPreview> {
+  RTCVideoRenderer? _renderer;
+
+  @override
+  void initState() {
+    super.initState();
+    _initRenderer();
+  }
+
+  Future<void> _initRenderer() async {
+    final r = RTCVideoRenderer();
+    await r.initialize();
+    r.srcObject = widget.stream;
+    if (mounted) setState(() => _renderer = r);
+  }
+
+  @override
+  void didUpdateWidget(_RemoteScreenPreview old) {
+    super.didUpdateWidget(old);
+    if (old.stream != widget.stream) {
+      _renderer?.dispose();
+      _renderer = null;
+      _initRenderer();
+    }
+  }
+
+  @override
+  void dispose() {
+    _renderer?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_renderer == null) return const SizedBox(height: 140);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Container(
+        height: 140,
+        decoration: BoxDecoration(
+          color: Colors.black,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Stack(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: RTCVideoView(
+                _renderer!,
+                objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain,
+              ),
+            ),
+            Positioned(
+              top: 4,
+              right: 4,
+              child: Material(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(20),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(20),
+                  onTap: widget.onFullscreenTap,
+                  child: const Padding(
+                    padding: EdgeInsets.all(6),
+                    child: Icon(Icons.fullscreen, color: Colors.white, size: 20),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -369,9 +479,9 @@ class _ParticipantTile extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Text(
-                      displayName,
-                      style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+                    Flexible(
+                      child: Text(displayName, maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
                     ),
                     if (isSelf)
                       Padding(

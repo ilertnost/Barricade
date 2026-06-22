@@ -416,8 +416,8 @@ class _ChatsTabState extends State<_ChatsTab> {
                             radius: 24,
                             fallbackIcon: ch.type == 'dm' ? null : _iconFor(ch),
                           ),
-                          title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                          subtitle: Text(_subtitleFor(ch)),
+                          title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: Text(_subtitleFor(ch), maxLines: 1, overflow: TextOverflow.ellipsis),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -708,7 +708,7 @@ class GlobalSearchDelegate extends SearchDelegate<void> {
           ..._channels.map((ch) => ListTile(
                 leading: UserAvatar(name: ch.name, radius: 22,
                     fallbackIcon: ch.type == 'guild' ? Icons.campaign : Icons.group),
-                title: Text(ch.name),
+                title: Text(ch.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                 subtitle: Text([
                   ch.username.isNotEmpty ? '@${ch.username}' : null,
                   ch.type == 'guild' ? Strings.t('channel.channel') : Strings.t('channel.group'),
@@ -728,8 +728,8 @@ class GlobalSearchDelegate extends SearchDelegate<void> {
           _searchHeader(context, Strings.t('common.contacts')),
           ..._users.map((u) => ListTile(
                 leading: UserAvatar(name: u.displayName, avatarId: u.avatarId, radius: 22),
-                title: Text(u.displayName),
-                subtitle: Text(u.atUsername),
+                title: Text(u.displayName, maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: Text(u.atUsername, maxLines: 1, overflow: TextOverflow.ellipsis),
                 onTap: () {
                   close(context, null);
                   _openDmOrCreateChannel(context, u);

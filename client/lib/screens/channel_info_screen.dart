@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:video_player/video_player.dart';
+import 'package:media_kit/media_kit.dart' hide AudioTrack;
+import 'package:media_kit_video/media_kit_video.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../l10n/strings.dart';
 import '../models/models.dart';
@@ -609,24 +610,44 @@ class _VideoViewer extends StatefulWidget {
 }
 
 class _VideoViewerState extends State<_VideoViewer> {
-  VideoPlayerController? _ctrl;
+  late final Player _player;
+  late final VideoController _controller;
+  bool _ready = false;
+
   @override
   void initState() {
     super.initState();
-    _ctrl = VideoPlayerController.networkUrl(Uri.parse(ApiService.getFileUrl(widget.fileId)))
-      ..initialize().then((_) { if (mounted) { setState(() {}); _ctrl!..setLooping(true)..play(); } });
+    _player = Player();
+    _controller = VideoController(_player);
+
+    _player.stream.videoParams.listen((_) {
+      if (!mounted) return;
+      _player.setPlaylistMode(PlaylistMode.single);
+      _player.play();
+      setState(() => _ready = true);
+    });
+
+    _player.stream.error.listen((_) {});
+
+    _player.open(Media(ApiService.getFileUrl(widget.fileId)));
   }
+
   @override
-  void dispose() { _ctrl?.dispose(); super.dispose(); }
+  void dispose() { _player.dispose(); super.dispose(); }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: Colors.black,
         appBar: AppBar(backgroundColor: Colors.black, iconTheme: const IconThemeData(color: Colors.white)),
         body: Center(
-          child: _ctrl?.value.isInitialized == true
-              ? AspectRatio(aspectRatio: _ctrl!.value.aspectRatio, child: GestureDetector(
-                  onTap: () => setState(() => _ctrl!.value.isPlaying ? _ctrl!.pause() : _ctrl!.play()),
-                  child: VideoPlayer(_ctrl!)))
+          child: _ready
+              ? AspectRatio(
+                  aspectRatio: (_player.state.width ?? 0) > 0 && (_player.state.height ?? 0) > 0
+                      ? (_player.state.width ?? 0) / (_player.state.height ?? 0)
+                      : 16 / 9,
+                  child: GestureDetector(
+                    onTap: () => _player.state.playing ? _player.pause() : _player.play(),
+                    child: Video(controller: _controller)))
               : const CircularProgressIndicator(),
         ),
       );

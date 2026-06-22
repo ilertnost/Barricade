@@ -2,7 +2,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:just_audio/just_audio.dart' show ProcessingState;
-import 'package:video_player/video_player.dart';
+import 'package:media_kit/media_kit.dart' hide AudioTrack;
+import 'package:media_kit_video/media_kit_video.dart';
 import '../l10n/strings.dart';
 import '../models/models.dart';
 import '../services/api_service.dart';
@@ -552,7 +553,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 children: [
                   Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                  Text(subtitle, style: TextStyle(fontSize: 12, color: cs.outline)),
+                  Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: cs.outline)),
                 ],
               ),
             ),
@@ -594,7 +595,9 @@ class _ChatScreenState extends State<ChatScreen> {
           children: [
             Icon(Icons.campaign, size: 18, color: cs.outline),
             const SizedBox(width: 8),
-            Text(Strings.t('channel.only_admin_can_post'), style: TextStyle(color: cs.outline)),
+            Flexible(
+              child: Text(Strings.t('channel.only_admin_can_post'), style: TextStyle(color: cs.outline), maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
           ],
         ),
       ),
@@ -1013,7 +1016,7 @@ class _MessageBubble extends StatelessWidget {
             padding: const EdgeInsets.only(left: 34, bottom: 2, top: 2),
             child: GestureDetector(
               onTap: onTapSender,
-              child: Text(_senderName,
+              child: Text(_senderName, maxLines: 1, overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: cs.primary, fontWeight: FontWeight.w600, fontSize: 12.5)),
             ),
           ),
@@ -1188,7 +1191,8 @@ class _VideoContent extends StatefulWidget {
 }
 
 class _VideoContentState extends State<_VideoContent> {
-  VideoPlayerController? _ctrl;
+  late final Player _player;
+  late final VideoController _controller;
   bool _initialized = false;
   bool _playing = false;
   bool _isCircle = false;
@@ -1196,18 +1200,26 @@ class _VideoContentState extends State<_VideoContent> {
   @override
   void initState() {
     super.initState();
-    _ctrl = VideoPlayerController.networkUrl(Uri.parse(ApiService.getFileUrl(widget.fileId)));
-    _ctrl!.initialize().then((_) {
+    _player = Player();
+    _controller = VideoController(_player);
+
+    _player.stream.videoParams.listen((_) {
       if (!mounted) return;
       setState(() => _initialized = true);
       if (_isCircle) {
-        // Circles (кружки) autoplay muted on loop, Telegram-style.
-        _ctrl!.setLooping(true);
-        _ctrl!.setVolume(0);
-        _ctrl!.play();
-        setState(() => _playing = true);
+        _player.setPlaylistMode(PlaylistMode.single);
+        _player.setVolume(0);
+        _player.play();
       }
-    }).catchError((_) {});
+    });
+
+    _player.stream.playing.listen((p) {
+      if (mounted) setState(() => _playing = p);
+    });
+
+    _player.stream.error.listen((_) {});
+
+    _player.open(Media(ApiService.getFileUrl(widget.fileId)));
     _detectCircle();
   }
 
@@ -1219,7 +1231,9 @@ class _VideoContentState extends State<_VideoContent> {
       if (mounted && circle) {
         setState(() => _isCircle = true);
         if (_initialized) {
-          _ctrl!..setLooping(true)..setVolume(0)..play();
+          _player.setPlaylistMode(PlaylistMode.single);
+          _player.setVolume(0);
+          _player.play();
           setState(() => _playing = true);
         }
       }
@@ -1228,7 +1242,7 @@ class _VideoContentState extends State<_VideoContent> {
 
   @override
   void dispose() {
-    _ctrl?.dispose();
+    _player.dispose();
     super.dispose();
   }
 
@@ -1253,9 +1267,9 @@ class _VideoContentState extends State<_VideoContent> {
                   fit: BoxFit.cover,
                   clipBehavior: Clip.hardEdge,
                   child: SizedBox(
-                    width: _ctrl!.value.size.width,
-                    height: _ctrl!.value.size.height,
-                    child: VideoPlayer(_ctrl!),
+                    width: (_player.state.width ?? 0).toDouble(),
+                    height: (_player.state.height ?? 0).toDouble(),
+                    child: Video(controller: _controller),
                   ),
                 ),
                 const Positioned(
@@ -1282,6 +1296,9 @@ class _VideoContentState extends State<_VideoContent> {
       );
     }
     if (_isCircle) return _buildCircle();
+    final w = _player.state.width ?? 0;
+    final h = _player.state.height ?? 0;
+    final aspectRatio = w > 0 && h > 0 ? w / h : 16 / 9;
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
       child: Stack(
@@ -1290,14 +1307,13 @@ class _VideoContentState extends State<_VideoContent> {
           SizedBox(
             width: double.infinity,
             child: AspectRatio(
-              aspectRatio: _ctrl!.value.aspectRatio,
-              child: VideoPlayer(_ctrl!),
+              aspectRatio: aspectRatio,
+              child: Video(controller: _controller),
             ),
           ),
           GestureDetector(
             onTap: () {
-              if (_playing) { _ctrl!.pause(); } else { _ctrl!.play(); }
-              setState(() => _playing = !_playing);
+              if (_playing) { _player.pause(); } else { _player.play(); }
             },
             child: CircleAvatar(
               radius: 24, backgroundColor: Colors.black45,
@@ -1413,23 +1429,32 @@ class _CircleFullscreen extends StatefulWidget {
 }
 
 class _CircleFullscreenState extends State<_CircleFullscreen> {
-  VideoPlayerController? _ctrl;
+  late final Player _player;
+  late final VideoController _controller;
   bool _ready = false;
 
   @override
   void initState() {
     super.initState();
-    _ctrl = VideoPlayerController.networkUrl(Uri.parse(ApiService.getFileUrl(widget.fileId)));
-    _ctrl!.initialize().then((_) {
+    _player = Player();
+    _controller = VideoController(_player);
+
+    _player.stream.videoParams.listen((_) {
       if (!mounted) return;
-      _ctrl!..setLooping(true)..setVolume(1)..play();
+      _player.setPlaylistMode(PlaylistMode.single);
+      _player.setVolume(100);
+      _player.play();
       setState(() => _ready = true);
-    }).catchError((_) {});
+    });
+
+    _player.stream.error.listen((_) {});
+
+    _player.open(Media(ApiService.getFileUrl(widget.fileId)));
   }
 
   @override
   void dispose() {
-    _ctrl?.dispose();
+    _player.dispose();
     super.dispose();
   }
 
@@ -1445,7 +1470,7 @@ class _CircleFullscreenState extends State<_CircleFullscreen> {
               child: !_ready
                   ? const CircularProgressIndicator()
                   : GestureDetector(
-                      onTap: () => _ctrl!.value.isPlaying ? _ctrl!.pause() : _ctrl!.play(),
+                      onTap: () => _player.state.playing ? _player.pause() : _player.play(),
                       child: ClipOval(
                         child: SizedBox(
                           width: side,
@@ -1454,9 +1479,9 @@ class _CircleFullscreenState extends State<_CircleFullscreen> {
                             fit: BoxFit.cover,
                             clipBehavior: Clip.hardEdge,
                             child: SizedBox(
-                              width: _ctrl!.value.size.width,
-                              height: _ctrl!.value.size.height,
-                              child: VideoPlayer(_ctrl!),
+                              width: (_player.state.width ?? 0).toDouble(),
+                              height: (_player.state.height ?? 0).toDouble(),
+                              child: Video(controller: _controller),
                             ),
                           ),
                         ),

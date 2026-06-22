@@ -130,6 +130,8 @@ class CallService extends ChangeNotifier {
   bool _isSharingScreen = false;
   String? _sharingPeerId;
   final Map<String, RTCRtpSender> _videoSenders = {};
+  final Map<String, MediaStream> _screenShareStreams = {};
+  Map<String, MediaStream> get screenShareStreams => Map.unmodifiable(_screenShareStreams);
 
   RTCSessionDescription? _pendingOfferSdp;
   String? _pendingCallerId;
@@ -171,7 +173,9 @@ class CallService extends ChangeNotifier {
   };
 
   void onWsMessage(Map<String, dynamic> msg) {
-    switch (msg['type'] as String?) {
+    final t = msg['type'] as String?;
+    debugPrint('VOICE_WS: type="$t" inVoice=$_inVoiceRoom participants=${_voiceParticipants.length}');
+    switch (t) {
       case 'webrtc':
         handleIncomingSignal(msg['payload'] as Map<String, dynamic>);
       case 'voice_room_participants':
@@ -355,7 +359,7 @@ class CallService extends ChangeNotifier {
         'width': {'ideal': 1920},
         'height': {'ideal': 1080},
       };
-      if (_savedScreenId != null) {
+      if (_savedScreenId != null && !Platform.isAndroid) {
         video['deviceId'] = {'exact': _savedScreenId};
       }
       final constraints = <String, dynamic>{'video': video, 'audio': false};
@@ -377,14 +381,39 @@ class CallService extends ChangeNotifier {
       return;
     }
 
-    // Replace video track in all peer connections via replaceTrack (no ICE restart).
-    for (final entry in {..._connections.entries, ..._voiceConnections.entries}) {
+    // Replace existing video senders (regular calls).
+    for (final entry in _connections.entries) {
       final sender = _videoSenders[entry.key];
       if (sender != null) {
         try {
           await sender.replaceTrack(screenTrack);
         } catch (e) {
           debugPrint('replaceTrack error for ${entry.key}: $e');
+        }
+      }
+    }
+
+    // Add screen video track to voice room peers and renegotiate.
+    for (final entry in _voiceConnections.entries) {
+      final sender = _videoSenders[entry.key];
+      if (sender == null) {
+        try {
+          final videoSender = await entry.value.addTrack(screenTrack, _screenStream!);
+          _videoSenders[entry.key] = videoSender;
+          final sdp = await entry.value.createOffer();
+          await entry.value.setLocalDescription(sdp);
+          if (_voiceChannelId != null) {
+            _ws.sendWebRTC(_voiceChannelId!, 'offer', jsonEncode(sdp.toMap()), entry.key);
+            debugPrint('START_SHARE: renegotiate with ${entry.key}');
+          }
+        } catch (e) {
+          debugPrint('addTrack for ${entry.key}: $e');
+        }
+      } else {
+        try {
+          await sender.replaceTrack(screenTrack);
+        } catch (e) {
+          debugPrint('replaceTrack voice for ${entry.key}: $e');
         }
       }
     }
@@ -405,10 +434,10 @@ class CallService extends ChangeNotifier {
   Future<void> stopScreenShare() async {
     if (!_isSharingScreen) return;
 
-    // Restore camera video track.
+    // Restore camera video track for regular calls.
     final cameraTrack = _localStream?.getVideoTracks().firstOrNull;
     if (cameraTrack != null) {
-      for (final entry in {..._connections.entries, ..._voiceConnections.entries}) {
+      for (final entry in _connections.entries) {
         final sender = _videoSenders[entry.key];
         if (sender != null) {
           try {
@@ -416,6 +445,25 @@ class CallService extends ChangeNotifier {
           } catch (e) {
             debugPrint('replaceTrack restore error for ${entry.key}: $e');
           }
+        }
+      }
+    }
+
+    // Remove screen video track from voice room peers and renegotiate.
+    for (final entry in _voiceConnections.entries) {
+      final sender = _videoSenders[entry.key];
+      if (sender != null) {
+        try {
+          await entry.value.removeTrack(sender);
+          _videoSenders.remove(entry.key);
+          final sdp = await entry.value.createOffer();
+          await entry.value.setLocalDescription(sdp);
+          if (_voiceChannelId != null) {
+            _ws.sendWebRTC(_voiceChannelId!, 'offer', jsonEncode(sdp.toMap()), entry.key);
+            debugPrint('STOP_SHARE: renegotiate with ${entry.key}');
+          }
+        } catch (e) {
+          debugPrint('removeTrack for ${entry.key}: $e');
         }
       }
     }
@@ -449,6 +497,7 @@ class CallService extends ChangeNotifier {
 
   Future<void> joinVoiceRoom(String channelId) async {
     if (_inVoiceRoom) return;
+    debugPrint('VOICE_JOIN: channel=$channelId');
     _voiceChannelId = channelId;
     _inVoiceRoom = true;
     if (_localStream == null) {
@@ -465,6 +514,7 @@ class CallService extends ChangeNotifier {
 
   Future<void> leaveVoiceRoom() async {
     if (!_inVoiceRoom) return;
+    debugPrint('VOICE_LEAVE: channel=$_voiceChannelId');
     if (_isSharingScreen) await stopScreenShare();
     if (_voiceChannelId != null) {
       _ws.voiceRoomLeave(_voiceChannelId!);
@@ -488,6 +538,7 @@ class CallService extends ChangeNotifier {
     }
     _voiceParticipants.clear();
     _volumes.clear();
+    _screenShareStreams.clear();
     _voiceChannelId = null;
     _inVoiceRoom = false;
     if (!inCall) {
@@ -498,10 +549,12 @@ class CallService extends ChangeNotifier {
 
   void _handleVoiceRoomParticipants(Map<String, dynamic> payload) {
     final participants = List<String>.from(payload['participants'] as List? ?? []);
+    debugPrint('VOICE_PARTICIPANTS: got ${participants.length} participants: $participants');
     _voiceParticipants.addAll(participants);
     _voiceParticipantCtrl.add(Set.from(_voiceParticipants));
     notifyListeners();
     for (final peerId in participants) {
+      debugPrint('VOICE_PARTICIPANTS: connecting to $peerId');
       _connectVoicePeer(peerId).catchError((e) {
         debugPrint('_connectVoicePeer error for $peerId: $e');
       });
@@ -510,9 +563,15 @@ class CallService extends ChangeNotifier {
 
   void _handleVoiceRoomUserJoined(Map<String, dynamic> payload) {
     final userId = payload['user_id'] as String?;
+    debugPrint('VOICE_USER_JOINED: userId=$userId inVoice=$_inVoiceRoom');
     if (userId == null || !_inVoiceRoom) return;
     _voiceParticipants.add(userId);
+    debugPrint('VOICE_USER_JOINED: participants now=${_voiceParticipants.length}');
     _voiceParticipantCtrl.add(Set.from(_voiceParticipants));
+    // If currently sharing screen, notify new joiner.
+    if (_isSharingScreen && _voiceChannelId != null) {
+      _ws.sendWebRTC(_voiceChannelId!, 'screen_share_change', {'sharing': true}, userId);
+    }
     notifyListeners();
     // Don't create an offer here — the joiner creates offers to all
     // existing participants via _handleVoiceRoomParticipants.
@@ -521,8 +580,10 @@ class CallService extends ChangeNotifier {
 
   void _handleVoiceRoomUserLeft(Map<String, dynamic> payload) {
     final userId = payload['user_id'] as String?;
+    debugPrint('VOICE_USER_LEFT: userId=$userId');
     if (userId == null) return;
     _voiceParticipants.remove(userId);
+    debugPrint('VOICE_USER_LEFT: participants now=${_voiceParticipants.length}');
     _voiceParticipantCtrl.add(Set.from(_voiceParticipants));
     if (_voiceConnections.containsKey(userId)) {
       _voiceConnections[userId]!.close();
@@ -547,9 +608,11 @@ class CallService extends ChangeNotifier {
   }
 
   Future<void> _connectVoicePeer(String peerId) async {
+    debugPrint('VOICE_CONNECT: peer=$peerId hasExisting=${_voiceConnections.containsKey(peerId)} channel=$_voiceChannelId');
     if (_voiceConnections.containsKey(peerId)) return;
     if (_voiceChannelId == null) return;
     if (_localStream == null) {
+      debugPrint('VOICE_CONNECT: initLocalMedia for $peerId');
       await initLocalMedia(video: false);
     }
 
@@ -559,6 +622,7 @@ class CallService extends ChangeNotifier {
       onRemoteStream: (stream) => _ensureVoiceRenderer(peerId, stream),
     );
     _voiceConnections[peerId] = pc;
+    debugPrint('VOICE_CONNECT: PC created for $peerId');
 
     if (_localStream != null) {
       for (final track in _localStream!.getTracks()) {
@@ -571,6 +635,7 @@ class CallService extends ChangeNotifier {
 
     final sdp = await pc.createOffer();
     await pc.setLocalDescription(sdp);
+    debugPrint('VOICE_CONNECT: sending offer to $peerId');
     _ws.sendWebRTC(_voiceChannelId!, 'offer', jsonEncode(sdp.toMap()), peerId);
   }
 
@@ -605,11 +670,24 @@ class CallService extends ChangeNotifier {
 
     switch (type) {
       case 'offer':
-        // If in voice room mode, accept the offer from another participant.
+        debugPrint('VOICE_OFFER: inVoice=$_inVoiceRoom channel=$_voiceChannelId offerChannel=$channelId from=$fromId');
         if (_inVoiceRoom && _voiceChannelId == channelId) {
+          debugPrint('VOICE_OFFER: accepting voice room offer from $fromId');
           try {
             final sdpMap = jsonDecode(payload['data'] as String) as Map<String, dynamic>;
             final sdp = RTCSessionDescription(sdpMap['sdp'] as String, sdpMap['type'] as String);
+
+            // Check for re-negotiation on existing connection (e.g. screen share).
+            final existingPc = _voiceConnections[fromId];
+            if (existingPc != null) {
+              debugPrint('VOICE_OFFER: renegotiation for existing PC $fromId');
+              await existingPc.setRemoteDescription(sdp);
+              final answer = await existingPc.createAnswer();
+              await existingPc.setLocalDescription(answer);
+              _ws.sendWebRTC(_voiceChannelId!, 'answer', jsonEncode(answer.toMap()), fromId);
+              return;
+            }
+
             if (_localStream == null) {
               try {
                 await initLocalMedia(video: false);
@@ -623,6 +701,7 @@ class CallService extends ChangeNotifier {
               onRemoteStream: (stream) => _ensureVoiceRenderer(fromId, stream),
             );
             _voiceConnections[fromId] = pc;
+            debugPrint('VOICE_OFFER: PC created for $fromId');
             await pc.setRemoteDescription(sdp);
         if (_localStream != null) {
           for (final track in _localStream!.getTracks()) {
@@ -632,8 +711,22 @@ class CallService extends ChangeNotifier {
             }
           }
         }
+        // If currently sharing screen, add video track for new joiner.
+        if (_isSharingScreen && _screenStream != null) {
+          final screenTrack = _screenStream!.getVideoTracks().firstOrNull;
+          if (screenTrack != null) {
+            try {
+              final sender = await pc.addTrack(screenTrack, _screenStream!);
+              _videoSenders[fromId] = sender;
+              debugPrint('VOICE_OFFER: added screen track for new joiner $fromId');
+            } catch (e) {
+              debugPrint('VOICE_OFFER: addTrack screen for $fromId: $e');
+            }
+          }
+        }
             final answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
+            debugPrint('VOICE_OFFER: sending answer to $fromId');
             _ws.sendWebRTC(_voiceChannelId!, 'answer', jsonEncode(answer.toMap()), fromId);
           } catch (e) {
             debugPrint('voice room offer handling error: $e');
@@ -689,6 +782,7 @@ class CallService extends ChangeNotifier {
         final sdpMap = jsonDecode(payload['data'] as String) as Map<String, dynamic>;
         final sdp = RTCSessionDescription(sdpMap['sdp'] as String, sdpMap['type'] as String);
         final pc = _connections[fromId] ?? _voiceConnections[fromId];
+        debugPrint('VOICE_ANSWER: from=$fromId pc=${pc != null} inVoice=$_inVoiceRoom');
         await pc?.setRemoteDescription(sdp);
         if (_state == CallState.ringing) {
           _state = CallState.connected;
@@ -705,6 +799,7 @@ class CallService extends ChangeNotifier {
           cand['sdpMLineIndex'] as int? ?? 0,
         );
         final pc = _connections[fromId] ?? _voiceConnections[fromId];
+        debugPrint('VOICE_CANDIDATE: from=$fromId pc=${pc != null} inVoice=$_inVoiceRoom');
         await pc?.addCandidate(candidate);
 
       case 'screen_share_change':
@@ -747,6 +842,7 @@ class CallService extends ChangeNotifier {
     _isSharingScreen = false;
     _sharingPeerId = null;
     _videoSenders.clear();
+    _screenShareStreams.clear();
     for (final e in _connections.entries) {
       e.value.close();
     }
@@ -767,6 +863,7 @@ class CallService extends ChangeNotifier {
     _isSharingScreen = false;
     _sharingPeerId = null;
     _videoSenders.clear();
+    _screenShareStreams.clear();
     for (final e in _connections.entries) {
       e.value.close();
     }
@@ -795,9 +892,14 @@ class CallService extends ChangeNotifier {
     };
 
     pc.onTrack = (event) {
-      _remoteStreams[peerId] = event.streams[0];
-      if (onRemoteStream != null) {
-        onRemoteStream(event.streams[0]);
+      final stream = event.streams[0];
+      if (event.track.kind == 'video' && _voiceConnections.containsKey(peerId)) {
+        _screenShareStreams[peerId] = stream;
+      } else {
+        _remoteStreams[peerId] = stream;
+        if (onRemoteStream != null) {
+          onRemoteStream(stream);
+        }
       }
       _updateParticipants();
     };
