@@ -1,14 +1,4 @@
 import 'dart:io';
-import 'dart:io';
-
-String? _x11Vo() {
-  if (Platform.isLinux &&
-      Platform.environment['WAYLAND_DISPLAY'] == null &&
-      Platform.environment.containsKey('DISPLAY')) {
-    return 'x11';
-  }
-  return null;
-}
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -1215,7 +1205,7 @@ class _VideoContentState extends State<_VideoContent> {
     _controller = VideoController(
       _player,
       configuration: VideoControllerConfiguration(
-        vo: _x11Vo(),
+        vo: null,
       ),
     );
 
@@ -1456,7 +1446,7 @@ class _CircleFullscreenState extends State<_CircleFullscreen> {
     _controller = VideoController(
       _player,
       configuration: VideoControllerConfiguration(
-        vo: _x11Vo(),
+        vo: null,
       ),
     );
 
