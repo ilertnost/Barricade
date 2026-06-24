@@ -359,6 +359,7 @@ class CallService extends ChangeNotifier {
     _isSharingScreen = true;
 
     final screenTrack = _screenStream!.getVideoTracks().firstOrNull;
+    final audioTrack = _screenStream!.getAudioTracks().firstOrNull;
     if (screenTrack == null) {
       _isSharingScreen = false;
       _screenStream?.dispose();
@@ -378,21 +379,33 @@ class CallService extends ChangeNotifier {
       }
     }
 
-    // Add screen video track to voice room peers and renegotiate.
+    // Add screen tracks (video + audio) to voice room peers and renegotiate.
     for (final entry in _voiceConnections.entries) {
       final sender = _videoSenders[entry.key];
       if (sender == null) {
+        bool needRenegotiate = false;
         try {
           final videoSender = await entry.value.addTrack(screenTrack, _screenStream!);
           _videoSenders[entry.key] = videoSender;
+          needRenegotiate = true;
+        } catch (e) {
+          debugPrint('addTrack video for ${entry.key}: $e');
+        }
+        if (audioTrack != null) {
+          try {
+            await entry.value.addTrack(audioTrack, _screenStream!);
+            needRenegotiate = true;
+          } catch (e) {
+            debugPrint('addTrack audio for ${entry.key}: $e');
+          }
+        }
+        if (needRenegotiate) {
           final sdp = await entry.value.createOffer();
           await entry.value.setLocalDescription(sdp);
           if (_voiceChannelId != null) {
             _ws.sendWebRTC(_voiceChannelId!, 'offer', jsonEncode(sdp.toMap()), entry.key);
             debugPrint('START_SHARE: renegotiate with ${entry.key}');
           }
-        } catch (e) {
-          debugPrint('addTrack for ${entry.key}: $e');
         }
       } else {
         try {
