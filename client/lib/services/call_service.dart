@@ -117,11 +117,13 @@ class CallService extends ChangeNotifier {
   bool _inVoiceRoom = false;
   String? _voiceChannelId;
   final Set<String> _voiceParticipants = {};
+  final Map<String, String> _voiceParticipantNames = {};
   final Map<String, RTCPeerConnection> _voiceConnections = {};
   final Map<String, RTCVideoRenderer> _voiceRenderers = {};
   final _voiceParticipantCtrl = StreamController<Set<String>>.broadcast();
   Stream<Set<String>> get voiceParticipantStream => _voiceParticipantCtrl.stream;
   Set<String> get voiceParticipants => Set.unmodifiable(_voiceParticipants);
+  String voiceParticipantName(String userId) => _voiceParticipantNames[userId] ?? userId;
   bool get inVoiceRoom => _inVoiceRoom;
   String? get voiceChannelId => _voiceChannelId;
 
@@ -184,6 +186,8 @@ class CallService extends ChangeNotifier {
         _handleVoiceRoomUserJoined(msg['payload'] as Map<String, dynamic>);
       case 'voice_room_user_left':
         _handleVoiceRoomUserLeft(msg['payload'] as Map<String, dynamic>);
+      case 'voice_state_updated':
+        _handleVoiceStateUpdated(msg['payload'] as Map<String, dynamic>);
     }
   }
 
@@ -529,12 +533,23 @@ class CallService extends ChangeNotifier {
   }
 
   void _handleVoiceRoomParticipants(Map<String, dynamic> payload) {
-    final participants = List<String>.from(payload['participants'] as List? ?? []);
-    debugPrint('VOICE_PARTICIPANTS: got ${participants.length} participants: $participants');
-    _voiceParticipants.addAll(participants);
+    final participants = List<dynamic>.from(payload['participants'] as List? ?? []);
+    debugPrint('VOICE_PARTICIPANTS: got ${participants.length} participants');
+    for (final entry in participants) {
+      if (entry is Map) {
+        final uid = entry['user_id'] as String?;
+        final name = entry['display_name'] as String? ?? uid;
+        if (uid != null) {
+          _voiceParticipants.add(uid);
+          if (name != null) _voiceParticipantNames[uid] = name;
+        }
+      } else if (entry is String) {
+        _voiceParticipants.add(entry);
+      }
+    }
     _voiceParticipantCtrl.add(Set.from(_voiceParticipants));
     notifyListeners();
-    for (final peerId in participants) {
+    for (final peerId in _voiceParticipants) {
       debugPrint('VOICE_PARTICIPANTS: connecting to $peerId');
       _connectVoicePeer(peerId).catchError((e) {
         debugPrint('_connectVoicePeer error for $peerId: $e');
@@ -544,9 +559,11 @@ class CallService extends ChangeNotifier {
 
   void _handleVoiceRoomUserJoined(Map<String, dynamic> payload) {
     final userId = payload['user_id'] as String?;
-    debugPrint('VOICE_USER_JOINED: userId=$userId inVoice=$_inVoiceRoom');
+    final displayName = payload['display_name'] as String?;
+    debugPrint('VOICE_USER_JOINED: userId=$userId displayName=$displayName inVoice=$_inVoiceRoom');
     if (userId == null || !_inVoiceRoom) return;
     _voiceParticipants.add(userId);
+    if (displayName != null) _voiceParticipantNames[userId] = displayName;
     debugPrint('VOICE_USER_JOINED: participants now=${_voiceParticipants.length}');
     _voiceParticipantCtrl.add(Set.from(_voiceParticipants));
     // If currently sharing screen, notify new joiner.
@@ -564,8 +581,17 @@ class CallService extends ChangeNotifier {
     debugPrint('VOICE_USER_LEFT: userId=$userId');
     if (userId == null) return;
     _voiceParticipants.remove(userId);
+    _voiceParticipantNames.remove(userId);
     debugPrint('VOICE_USER_LEFT: participants now=${_voiceParticipants.length}');
     _voiceParticipantCtrl.add(Set.from(_voiceParticipants));
+
+  void _handleVoiceStateUpdated(Map<String, dynamic> payload) {
+    final userId = payload['user_id'] as String?;
+    final displayName = payload['display_name'] as String?;
+    if (userId != null && displayName != null && displayName.isNotEmpty) {
+      _voiceParticipantNames[userId] = displayName;
+    }
+  }
     if (_voiceConnections.containsKey(userId)) {
       _voiceConnections[userId]!.close();
       _voiceConnections.remove(userId);
@@ -907,7 +933,7 @@ class CallService extends ChangeNotifier {
     for (final e in _connections.entries) {
       list.add(CallParticipant(
         userId: e.key,
-        displayName: e.key,
+        displayName: voiceParticipantName(e.key),
         hasVideo: _remoteStreams.containsKey(e.key),
         stream: _remoteStreams[e.key],
         volume: _volumes[e.key] ?? 1.0,
