@@ -130,6 +130,10 @@ func runServer(addr, phonePath string) {
 					default:
 					}
 				}
+			case "ping":
+				writeMu.Lock()
+				ws.WriteJSON(Msg{Type: "pong"})
+				writeMu.Unlock()
 			}
 		}
 	})
@@ -330,7 +334,29 @@ func runClient(remoteAddr, forwardAddr, phonePath string, insecure bool) {
 
 		var wMu sync.Mutex
 
+		// Client keepalive: send ping every 15s
+		done := make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					wMu.Lock()
+					err := ws.WriteMessage(websocket.TextMessage, []byte(`{"type":"ping"}`))
+					wMu.Unlock()
+					if err != nil {
+						ws.Close()
+						return
+					}
+				case <-done:
+					return
+				}
+			}
+		}()
+
 		func() {
+			defer close(done)
 			defer ws.Close()
 			for {
 				_, msg, err := ws.ReadMessage()
@@ -340,6 +366,11 @@ func runClient(remoteAddr, forwardAddr, phonePath string, insecure bool) {
 				}
 				var req Msg
 				if err := json.Unmarshal(msg, &req); err != nil {
+					continue
+				}
+
+				// Skip keepalive pongs/responses
+				if req.Type == "pong" || req.Type == "ping" {
 					continue
 				}
 
