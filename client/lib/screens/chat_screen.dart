@@ -23,6 +23,15 @@ import '../widgets/voice_recorder.dart';
 import '../widgets/video_circle.dart';
 import '../widgets/voice_room_panel.dart';
 
+String? _x11Vo() {
+  if (Platform.isLinux &&
+      Platform.environment['WAYLAND_DISPLAY'] == null &&
+      Platform.environment.containsKey('DISPLAY')) {
+    return 'x11';
+  }
+  return null;
+}
+
 class ChatScreen extends StatefulWidget {
   final Channel channel;
   final String? filterSenderId;
@@ -1209,7 +1218,12 @@ class _VideoContentState extends State<_VideoContent> {
   void initState() {
     super.initState();
     _player = Player();
-    _controller = VideoController(_player);
+    _controller = VideoController(
+      _player,
+      configuration: VideoControllerConfiguration(
+        vo: _x11Vo(),
+      ),
+    );
 
     _player.stream.videoParams.listen((_) {
       if (!mounted) return;
@@ -1445,7 +1459,12 @@ class _CircleFullscreenState extends State<_CircleFullscreen> {
   void initState() {
     super.initState();
     _player = Player();
-    _controller = VideoController(_player);
+    _controller = VideoController(
+      _player,
+      configuration: VideoControllerConfiguration(
+        vo: _x11Vo(),
+      ),
+    );
 
     _player.stream.videoParams.listen((_) {
       if (!mounted) return;

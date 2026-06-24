@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:media_kit/media_kit.dart' hide AudioTrack;
@@ -11,6 +13,15 @@ import '../services/file_saver.dart';
 import '../services/mute_service.dart';
 import '../services/call_service.dart';
 import '../widgets/user_avatar.dart';
+
+String? _x11Vo() {
+  if (Platform.isLinux &&
+      Platform.environment['WAYLAND_DISPLAY'] == null &&
+      Platform.environment.containsKey('DISPLAY')) {
+    return 'x11';
+  }
+  return null;
+}
 
 /// Telegram-style chat info: header + tabs (Media / Files / Music / Links /
 /// Members), with member management for owner/admin.
@@ -618,7 +629,12 @@ class _VideoViewerState extends State<_VideoViewer> {
   void initState() {
     super.initState();
     _player = Player();
-    _controller = VideoController(_player);
+    _controller = VideoController(
+      _player,
+      configuration: VideoControllerConfiguration(
+        vo: _x11Vo(),
+      ),
+    );
 
     _player.stream.videoParams.listen((_) {
       if (!mounted) return;
