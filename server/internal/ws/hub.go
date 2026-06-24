@@ -398,12 +398,16 @@ func (h *Hub) handleVoiceStateUpdate(client *Client, payload json.RawMessage) {
 		client.SendError("invalid payload")
 		return
 	}
+	dn := client.DisplayName
+	if dn == "" {
+		dn = client.Username
+	}
 	vs := &model.VoiceState{
 		UserID:      client.UserID,
 		ChannelID:   p.ChannelID,
 		Muted:       p.Muted,
 		Deafened:    p.Deafened,
-		DisplayName: client.DisplayName,
+		DisplayName: dn,
 	}
 	h.DB.SetVoiceState(vs)
 	h.broadcast(p.ChannelID, OutgoingMessage{
@@ -690,10 +694,14 @@ func (h *Hub) handleVoiceRoomJoin(client *Client, payload json.RawMessage) {
 	var existing []map[string]string
 	for uid, c := range h.voiceRooms[p.ChannelID] {
 		if uid != client.UserID {
+			dn := c.DisplayName
+			if dn == "" {
+				dn = c.Username
+			}
 			existing = append(existing, map[string]string{
 				"user_id":      uid,
 				"username":     c.Username,
-				"display_name": c.DisplayName,
+				"display_name": dn,
 			})
 		}
 	}
@@ -707,6 +715,10 @@ func (h *Hub) handleVoiceRoomJoin(client *Client, payload json.RawMessage) {
 		},
 	})
 	// Broadcast join to existing participants.
+	myDN := client.DisplayName
+	if myDN == "" {
+		myDN = client.Username
+	}
 	for uid, c := range h.voiceRooms[p.ChannelID] {
 		if uid != client.UserID {
 			c.SendJSON(OutgoingMessage{
@@ -715,7 +727,7 @@ func (h *Hub) handleVoiceRoomJoin(client *Client, payload json.RawMessage) {
 					"channel_id":   p.ChannelID,
 					"user_id":      client.UserID,
 					"username":     client.Username,
-					"display_name": client.DisplayName,
+					"display_name": myDN,
 				},
 			})
 		}
