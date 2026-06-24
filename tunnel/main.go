@@ -186,6 +186,7 @@ func runServer(addr, phonePath string) {
 		})
 		writeMu.Unlock()
 		if err != nil {
+			log.Printf("proxy %s: write to phone: %v", proxyID, err)
 			return
 		}
 
@@ -385,8 +386,9 @@ func runClient(remoteAddr, forwardAddr, phonePath string, insecure bool) {
 							log.Printf("write response: %v", err)
 						}
 					}()
-				case "proxy_start":
-					go handleProxyStart(ws, &wMu, req, baseURL, forwardAddr, insecure)
+			case "proxy_start":
+				log.Printf("proxy_start received: id=%s url=%s", req.ID, req.URL)
+				go handleProxyStart(ws, &wMu, req, baseURL, forwardAddr, insecure)
 				}
 			}
 		}()
@@ -446,6 +448,8 @@ func handleProxyStart(ws *websocket.Conn, wMu *sync.Mutex, req Msg, baseURL, for
 	defer proxyWS.Close()
 
 	targetURL := strings.TrimSuffix(forwardAddr, "/") + req.URL
+	targetURL = strings.Replace(targetURL, "http://", "ws://", 1)
+	targetURL = strings.Replace(targetURL, "https://", "wss://", 1)
 
 	targetWS, _, err := websocket.DefaultDialer.Dial(targetURL, nil)
 	if err != nil {
