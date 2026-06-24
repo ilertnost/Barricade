@@ -350,7 +350,7 @@ class CallService extends ChangeNotifier {
       final constraints = <String, dynamic>{'video': video, 'audio': true};
       debugPrint('START_SHARE: constraints=$constraints');
       _screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
-      debugPrint('START_SHARE: OK, tracks=${_screenStream!.getVideoTracks().length}');
+      debugPrint('START_SHARE: OK, video=${_screenStream!.getVideoTracks().length} audio=${_screenStream!.getAudioTracks().length}');
     } catch (e, st) {
       debugPrint('SCREEN_SHARE_ERROR: $e\n$st');
       return;
@@ -399,6 +399,7 @@ class CallService extends ChangeNotifier {
             debugPrint('addTrack audio for ${entry.key}: $e');
           }
         }
+        debugPrint('START_SHARE: needRenegotiate=$needRenegotiate audioTrack=${audioTrack != null}');
         if (needRenegotiate) {
           final sdp = await entry.value.createOffer();
           await entry.value.setLocalDescription(sdp);
@@ -913,6 +914,7 @@ class CallService extends ChangeNotifier {
 
     pc.onTrack = (event) {
       final stream = event.streams[0];
+      debugPrint('ONTRACK: kind=${event.track.kind} id=${event.track.id} enabled=${event.track.enabled} peerId=$peerId');
       if (event.track.kind == 'video' && _voiceConnections.containsKey(peerId)) {
         _screenShareStreams[peerId] = stream;
       } else {
