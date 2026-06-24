@@ -63,7 +63,6 @@ class _VoiceRoomPanelState extends State<_VoiceRoomPanel> {
       if (mounted) setState(() {});
       return;
     }
-    await CallService.pickScreenSource();
     try {
       await call.startScreenShare();
     } catch (e) {

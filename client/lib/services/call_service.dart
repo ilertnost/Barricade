@@ -333,26 +333,6 @@ class CallService extends ChangeNotifier {
   }
 
   // ── Screen sharing ──
-  static String? _savedScreenId;
-  static bool _sourcesPopulated = false;
-
-  /// Call [desktopCapturer.getSources] once per session to populate the
-  /// native source cache. On Wayland this shows an xdg-desktop-portal dialog.
-  /// The first call stores the source ID for [startScreenShare] to use with
-  /// [getDisplayMedia], which on Wayland requires a [deviceId] hint.
-  /// Subsequent calls skip the dialog.
-  static Future<void> pickScreenSource() async {
-    if (_sourcesPopulated || Platform.isAndroid) return;
-    debugPrint('PICK_SOURCE: getSources...');
-    try {
-      final sources = await desktopCapturer.getSources(types: [SourceType.Screen]);
-      _savedScreenId = sources.firstOrNull?.id;
-      _sourcesPopulated = true;
-      debugPrint('PICK_SOURCE: saved id="${_savedScreenId}"');
-    } catch (e) {
-      debugPrint('PICK_SOURCE: error: $e');
-    }
-  }
 
   Future<void> startScreenShare() async {
     if (_isSharingScreen) return;
@@ -363,11 +343,8 @@ class CallService extends ChangeNotifier {
         'width': {'ideal': 1920},
         'height': {'ideal': 1080},
       };
-      if (_savedScreenId != null && !Platform.isAndroid) {
-        video['deviceId'] = {'exact': _savedScreenId};
-      }
       final constraints = <String, dynamic>{'video': video, 'audio': true};
-      debugPrint('START_SHARE: constraints=$constraints android=$Platform.isAndroid');
+      debugPrint('START_SHARE: constraints=$constraints');
       _screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
       debugPrint('START_SHARE: OK, tracks=${_screenStream!.getVideoTracks().length}');
     } catch (e, st) {
