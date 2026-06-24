@@ -6,7 +6,6 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 import '../l10n/strings.dart';
 import '../services/call_service.dart';
-import '../widgets/screen_source_picker.dart';
 
 class CallScreen extends StatefulWidget {
   final String channelId;
@@ -88,12 +87,7 @@ class _CallScreenState extends State<CallScreen> {
       if (mounted) setState(() {});
       return;
     }
-    // Call getSources() FIRST — shows portal dialog (source picker) on Wayland.
-    // This establishes the portal session so that startScreenShare's
-    // getDisplayMedia() can skip its own dialog.
     await CallService.pickScreenSource();
-    final confirmed = await ScreenShareConfirmDialog.show(context);
-    if (!confirmed) return;
     try {
       await call.startScreenShare();
     } catch (e) {
