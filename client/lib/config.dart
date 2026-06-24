@@ -1,4 +1,4 @@
 class Config {
-  static const String serverUrl = 'http://192.168.0.103:8080';
-  static const String wsUrl = 'ws://192.168.0.103:8080/ws';
+  static const String serverUrl = 'https://barricade-tunnel.onrender.com';
+  static const String wsUrl = 'wss://barricade-tunnel.onrender.com/ws';
 }
