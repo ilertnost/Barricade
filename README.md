@@ -21,7 +21,7 @@ Self-hosted messenger (LAN alpha, will be VPS-hosted). Go server + Flutter clien
 ## Network Configuration
 
 Server runs on the local network and listens on `0.0.0.0:8080`.  
-**Current server IP**: `192.168.0.103:8080` (Redmi Note 13 Pro).
+**Current server IP**: `192.168.0.103:8080` (Redmi 13C).
 
 To change the server address:
 - **Server**: Edit `server/cmd/server/main.go` → `addr` variable (default `:8080`).
