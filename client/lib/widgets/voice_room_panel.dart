@@ -158,13 +158,13 @@ class _VoiceRoomPanelState extends State<_VoiceRoomPanel> {
                       _ScreenPreview(
                         renderer: _previewRenderer!,
                         isDesktop: !Platform.isAndroid,
-                        onFullscreenTap: () => _toggleFullscreen(call),
+                        onFullscreenTap: () => _openFullscreen(call.screenStream),
                       ),
                     // Remote screen share
                     if (call.sharingPeerId != null && call.screenShareStreams[call.sharingPeerId] != null)
                       _RemoteScreenPreview(
                         stream: call.screenShareStreams[call.sharingPeerId]!,
-                        onFullscreenTap: () => _toggleFullscreen(call),
+                        onFullscreenTap: () => _openFullscreen(call.screenShareStreams[call.sharingPeerId]),
                       ),
                     // Self tile
                     _ParticipantTile(
@@ -215,13 +215,16 @@ class _VoiceRoomPanelState extends State<_VoiceRoomPanel> {
                       active: !call.deafened,
                       onTap: () => call.toggleDeafen(),
                     ),
-                    _ControlButton(
-                      icon: call.isSharingScreen ? Icons.stop_screen_share : Icons.screen_share,
-                      label: call.isSharingScreen ? 'Стоп' : 'Экран',
-                      active: true,
-                      iconColor: call.isSharingScreen ? Colors.green : cs.onSurface,
-                      onTap: () => _onScreenShareTap(call),
-                    ),
+                    // Broadcasting your screen is desktop-only for now (Android
+                    // MediaProjection crashes); Android can still VIEW shares.
+                    if (!Platform.isAndroid)
+                      _ControlButton(
+                        icon: call.isSharingScreen ? Icons.stop_screen_share : Icons.screen_share,
+                        label: call.isSharingScreen ? 'Стоп' : 'Экран',
+                        active: true,
+                        iconColor: call.isSharingScreen ? Colors.green : cs.onSurface,
+                        onTap: () => _onScreenShareTap(call),
+                      ),
                     _ControlButton(
                       icon: Icons.call_end,
                       label: 'Выйти',
@@ -242,10 +245,70 @@ class _VoiceRoomPanelState extends State<_VoiceRoomPanel> {
     );
   }
 
-  void _toggleFullscreen(CallService call) {
-    // For the local sharer, tapping fullscreen on the preview
-    // expands the voice room panel. For now just logs.
-    debugPrint('fullscreen preview tapped');
+  void _openFullscreen(MediaStream? stream) {
+    if (stream == null) return;
+    Navigator.of(context, rootNavigator: true).push(
+      MaterialPageRoute(builder: (_) => _ScreenShareFullscreen(stream: stream)),
+    );
+  }
+}
+
+/// Fullscreen viewer for a screen-share stream (local or remote). Remote audio
+/// (if any) plays via the WebRTC audio track automatically.
+class _ScreenShareFullscreen extends StatefulWidget {
+  final MediaStream stream;
+  const _ScreenShareFullscreen({required this.stream});
+
+  @override
+  State<_ScreenShareFullscreen> createState() => _ScreenShareFullscreenState();
+}
+
+class _ScreenShareFullscreenState extends State<_ScreenShareFullscreen> {
+  final _renderer = RTCVideoRenderer();
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _renderer.initialize().then((_) {
+      _renderer.srcObject = widget.stream;
+      if (mounted) setState(() => _ready = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _renderer.srcObject = null;
+    _renderer.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: _ready
+                ? RTCVideoView(_renderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitContain)
+                : const Center(child: CircularProgressIndicator(color: Colors.white)),
+          ),
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            right: 8,
+            child: Material(
+              color: Colors.black54,
+              shape: const CircleBorder(),
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

@@ -74,11 +74,6 @@ void main() async {
   debugPrint('MAIN: about to runApp');
   runApp(const BarricadeApp());
   debugPrint('MAIN: runApp called');
-  // Preload screen source on Linux (Wayland). getSources() establishes the
-  // portal session so that getDisplayMedia() skips its own dialog later.
-  if (!Platform.isAndroid) {
-    CallService.pickScreenSource();
-  }
 }
 
 class BarricadeApp extends StatelessWidget {

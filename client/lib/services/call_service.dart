@@ -362,7 +362,9 @@ class CallService extends ChangeNotifier {
       if (_savedScreenId != null && !Platform.isAndroid) {
         video['deviceId'] = {'exact': _savedScreenId};
       }
-      final constraints = <String, dynamic>{'video': video, 'audio': false};
+      // audio:true captures system/loopback audio so the share has sound.
+      // Native side falls back to video-only if loopback isn't available.
+      final constraints = <String, dynamic>{'video': video, 'audio': true};
       debugPrint('START_SHARE: constraints=$constraints android=$Platform.isAndroid');
       _screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
       debugPrint('START_SHARE: OK, tracks=${_screenStream!.getVideoTracks().length}');
