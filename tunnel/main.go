@@ -57,6 +57,7 @@ func runServer(addr, phonePath string) {
 	var (
 		phone   *websocket.Conn
 		phoneMu sync.Mutex
+		writeMu sync.Mutex
 		pending = make(map[string]*pendingResp)
 		pMu     sync.Mutex
 		idSeq   int64
@@ -78,7 +79,29 @@ func runServer(addr, phonePath string) {
 		phoneMu.Unlock()
 
 		log.Printf("phone connected from %s", r.RemoteAddr)
+
+		// Keepalive pings every 20s
+		pingStop := make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(20 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					writeMu.Lock()
+					err := ws.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second))
+					writeMu.Unlock()
+					if err != nil {
+						return
+					}
+				case <-pingStop:
+					return
+				}
+			}
+		}()
+
 		defer func() {
+			close(pingStop)
 			phoneMu.Lock()
 			phone = nil
 			phoneMu.Unlock()
@@ -151,11 +174,13 @@ func runServer(addr, phonePath string) {
 		proxies.Store(proxyID, proxyCh)
 		defer proxies.Delete(proxyID)
 
+		writeMu.Lock()
 		err = p.WriteJSON(Msg{
 			Type: "proxy_start",
 			ID:   proxyID,
 			URL:  "/ws",
 		})
+		writeMu.Unlock()
 		if err != nil {
 			return
 		}
@@ -246,7 +271,10 @@ func runServer(addr, phonePath string) {
 			Headers: headers,
 			Body:    body,
 		}
-		if err := ws.WriteJSON(req); err != nil {
+		writeMu.Lock()
+		werr := ws.WriteJSON(req)
+		writeMu.Unlock()
+		if werr != nil {
 			http.Error(w, "tunnel error", http.StatusBadGateway)
 			pMu.Lock()
 			delete(pending, id)
@@ -300,6 +328,8 @@ func runClient(remoteAddr, forwardAddr, phonePath string, insecure bool) {
 		}
 		log.Printf("connected to %s", phoneURL)
 
+		var wMu sync.Mutex
+
 		func() {
 			defer ws.Close()
 			for {
@@ -315,9 +345,17 @@ func runClient(remoteAddr, forwardAddr, phonePath string, insecure bool) {
 
 				switch req.Type {
 				case "request":
-					go handleHTTPRequest(ws, req, forwardAddr)
+					go func() {
+						resp := handleHTTPRequest(req, forwardAddr)
+						wMu.Lock()
+						err := ws.WriteJSON(resp)
+						wMu.Unlock()
+						if err != nil {
+							log.Printf("write response: %v", err)
+						}
+					}()
 				case "proxy_start":
-					go handleProxyStart(ws, req, baseURL, forwardAddr, insecure)
+					go handleProxyStart(ws, &wMu, req, baseURL, forwardAddr, insecure)
 				}
 			}
 		}()
@@ -326,11 +364,10 @@ func runClient(remoteAddr, forwardAddr, phonePath string, insecure bool) {
 	}
 }
 
-func handleHTTPRequest(ws *websocket.Conn, req Msg, forwardAddr string) {
+func handleHTTPRequest(req Msg, forwardAddr string) Msg {
 	httpReq, err := http.NewRequest(req.Method, forwardAddr+req.URL, bytes.NewReader(req.Body))
 	if err != nil {
-		ws.WriteJSON(Msg{Type: "error", ID: req.ID, Error: err.Error()})
-		return
+		return Msg{Type: "error", ID: req.ID, Error: err.Error()}
 	}
 	for k, v := range req.Headers {
 		httpReq.Header.Set(k, v)
@@ -339,8 +376,7 @@ func handleHTTPRequest(ws *websocket.Conn, req Msg, forwardAddr string) {
 	client := &http.Client{Timeout: 120 * time.Second}
 	httpResp, err := client.Do(httpReq)
 	if err != nil {
-		ws.WriteJSON(Msg{Type: "error", ID: req.ID, Error: err.Error()})
-		return
+		return Msg{Type: "error", ID: req.ID, Error: err.Error()}
 	}
 	defer httpResp.Body.Close()
 
@@ -353,17 +389,16 @@ func handleHTTPRequest(ws *websocket.Conn, req Msg, forwardAddr string) {
 		}
 	}
 
-	resp := Msg{
+	return Msg{
 		Type:    "response",
 		ID:      req.ID,
 		Status:  httpResp.StatusCode,
 		Headers: headers,
 		Body:    respBody,
 	}
-	ws.WriteJSON(resp)
 }
 
-func handleProxyStart(ws *websocket.Conn, req Msg, baseURL, forwardAddr string, insecure bool) {
+func handleProxyStart(ws *websocket.Conn, wMu *sync.Mutex, req Msg, baseURL, forwardAddr string, insecure bool) {
 	proxyID := req.ID
 	proxyURL := strings.TrimSuffix(baseURL, "/") + "/_proxy/" + proxyID
 
