@@ -87,7 +87,6 @@ class _CallScreenState extends State<CallScreen> {
       if (mounted) setState(() {});
       return;
     }
-    await CallService.pickScreenSource();
     try {
       await call.startScreenShare();
     } catch (e) {

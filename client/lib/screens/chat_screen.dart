@@ -1,4 +1,15 @@
 import 'dart:io';
+import 'dart:io';
+
+String? _x11Vo() {
+  if (Platform.isLinux &&
+      Platform.environment['WAYLAND_DISPLAY'] == null &&
+      Platform.environment.containsKey('DISPLAY')) {
+    return 'x11';
+  }
+  return null;
+}
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:just_audio/just_audio.dart' show ProcessingState;
@@ -1201,7 +1212,12 @@ class _VideoContentState extends State<_VideoContent> {
   void initState() {
     super.initState();
     _player = Player();
-    _controller = VideoController(_player);
+    _controller = VideoController(
+      _player,
+      configuration: VideoControllerConfiguration(
+        vo: _x11Vo(),
+      ),
+    );
 
     _player.stream.videoParams.listen((_) {
       if (!mounted) return;
@@ -1437,7 +1453,12 @@ class _CircleFullscreenState extends State<_CircleFullscreen> {
   void initState() {
     super.initState();
     _player = Player();
-    _controller = VideoController(_player);
+    _controller = VideoController(
+      _player,
+      configuration: VideoControllerConfiguration(
+        vo: _x11Vo(),
+      ),
+    );
 
     _player.stream.videoParams.listen((_) {
       if (!mounted) return;
