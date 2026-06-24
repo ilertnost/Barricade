@@ -4,7 +4,6 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 import '../services/api_service.dart';
 import '../services/call_service.dart';
-import 'screen_source_picker.dart';
 import 'user_avatar.dart';
 
 void showVoiceRoomPanel(BuildContext context, {required String channelName}) {
@@ -65,8 +64,6 @@ class _VoiceRoomPanelState extends State<_VoiceRoomPanel> {
       return;
     }
     await CallService.pickScreenSource();
-    final confirmed = await ScreenShareConfirmDialog.show(context);
-    if (!confirmed) return;
     try {
       await call.startScreenShare();
     } catch (e) {

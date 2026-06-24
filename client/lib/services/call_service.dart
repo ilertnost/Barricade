@@ -333,18 +333,19 @@ class CallService extends ChangeNotifier {
   }
 
   // ── Screen sharing ──
-  static String? _savedScreenId;
+  static bool _sourcesPopulated = false;
 
   /// Call [desktopCapturer.getSources] once per session to populate the
   /// native source cache. On Wayland this shows an xdg-desktop-portal dialog.
-  /// After this, [startScreenShare] can capture without a second dialog.
+  /// We do NOT store the source ID — [getDisplayMedia] manages its own
+  /// selection dialog on Wayland.
   static Future<void> pickScreenSource() async {
-    if (_savedScreenId != null || Platform.isAndroid) return;
+    if (_sourcesPopulated || Platform.isAndroid) return;
     debugPrint('PICK_SOURCE: getSources...');
     try {
-      final sources = await desktopCapturer.getSources(types: [SourceType.Screen]);
-      _savedScreenId = sources.firstOrNull?.id;
-      debugPrint('PICK_SOURCE: saved id="${_savedScreenId}"');
+      await desktopCapturer.getSources(types: [SourceType.Screen]);
+      _sourcesPopulated = true;
+      debugPrint('PICK_SOURCE: done');
     } catch (e) {
       debugPrint('PICK_SOURCE: error: $e');
     }
@@ -354,18 +355,17 @@ class CallService extends ChangeNotifier {
     if (_isSharingScreen) return;
 
     try {
-      final video = <String, dynamic>{
-        'frameRate': 60.0,
-        'width': {'ideal': 1920},
-        'height': {'ideal': 1080},
-      };
-      if (_savedScreenId != null && !Platform.isAndroid) {
-        video['deviceId'] = {'exact': _savedScreenId};
-      }
       // audio:true captures system/loopback audio so the share has sound.
       // Native side falls back to video-only if loopback isn't available.
-      final constraints = <String, dynamic>{'video': video, 'audio': true};
-      debugPrint('START_SHARE: getDisplayMedia with id="${_savedScreenId}"');
+      final constraints = <String, dynamic>{
+        'video': {
+          'frameRate': 60.0,
+          'width': {'ideal': 1920},
+          'height': {'ideal': 1080},
+        },
+        'audio': true,
+      };
+      debugPrint('START_SHARE: constraints=$constraints android=$Platform.isAndroid');
       _screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
       debugPrint('START_SHARE: OK, tracks=${_screenStream!.getVideoTracks().length}');
     } catch (e, st) {
