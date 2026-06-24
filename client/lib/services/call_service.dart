@@ -584,14 +584,6 @@ class CallService extends ChangeNotifier {
     _voiceParticipantNames.remove(userId);
     debugPrint('VOICE_USER_LEFT: participants now=${_voiceParticipants.length}');
     _voiceParticipantCtrl.add(Set.from(_voiceParticipants));
-
-  void _handleVoiceStateUpdated(Map<String, dynamic> payload) {
-    final userId = payload['user_id'] as String?;
-    final displayName = payload['display_name'] as String?;
-    if (userId != null && displayName != null && displayName.isNotEmpty) {
-      _voiceParticipantNames[userId] = displayName;
-    }
-  }
     if (_voiceConnections.containsKey(userId)) {
       _voiceConnections[userId]!.close();
       _voiceConnections.remove(userId);
@@ -602,6 +594,14 @@ class CallService extends ChangeNotifier {
       _voiceRenderers.remove(userId);
     }
     notifyListeners();
+  }
+
+  void _handleVoiceStateUpdated(Map<String, dynamic> payload) {
+    final userId = payload['user_id'] as String?;
+    final displayName = payload['display_name'] as String?;
+    if (userId != null && displayName != null && displayName.isNotEmpty) {
+      _voiceParticipantNames[userId] = displayName;
+    }
   }
 
   Future<void> _ensureVoiceRenderer(String peerId, MediaStream stream) async {
