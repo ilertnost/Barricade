@@ -399,10 +399,11 @@ func (h *Hub) handleVoiceStateUpdate(client *Client, payload json.RawMessage) {
 		return
 	}
 	vs := &model.VoiceState{
-		UserID:    client.UserID,
-		ChannelID: p.ChannelID,
-		Muted:     p.Muted,
-		Deafened:  p.Deafened,
+		UserID:      client.UserID,
+		ChannelID:   p.ChannelID,
+		Muted:       p.Muted,
+		Deafened:    p.Deafened,
+		DisplayName: client.DisplayName,
 	}
 	h.DB.SetVoiceState(vs)
 	h.broadcast(p.ChannelID, OutgoingMessage{
@@ -686,10 +687,14 @@ func (h *Hub) handleVoiceRoomJoin(client *Client, payload json.RawMessage) {
 	if _, ok := h.voiceRooms[p.ChannelID]; !ok {
 		h.voiceRooms[p.ChannelID] = make(map[string]*Client)
 	}
-	var existing []string
-	for uid := range h.voiceRooms[p.ChannelID] {
+	var existing []map[string]string
+	for uid, c := range h.voiceRooms[p.ChannelID] {
 		if uid != client.UserID {
-			existing = append(existing, uid)
+			existing = append(existing, map[string]string{
+				"user_id":      uid,
+				"username":     c.Username,
+				"display_name": c.DisplayName,
+			})
 		}
 	}
 	h.voiceRooms[p.ChannelID][client.UserID] = client
