@@ -176,7 +176,7 @@ class _VoiceRoomPanelState extends State<_VoiceRoomPanel> {
                     for (final uid in allUsers.where((u) => u != myId))
                       _ParticipantTile(
                         userId: uid,
-                        displayName: uid,
+                        displayName: call.voiceParticipantName(uid),
                         isSelf: false,
                         isMuted: false,
                         isDeafened: false,

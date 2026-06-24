@@ -87,10 +87,11 @@ type File struct {
 }
 
 type VoiceState struct {
-	UserID    string `json:"user_id"`
-	ChannelID string `json:"channel_id"`
-	Muted     bool   `json:"muted"`
-	Deafened  bool   `json:"deafened"`
+	UserID      string `json:"user_id"`
+	ChannelID   string `json:"channel_id"`
+	Muted       bool   `json:"muted"`
+	Deafened    bool   `json:"deafened"`
+	DisplayName string `json:"display_name,omitempty"`
 }
 
 type WSMessage struct {
