@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:just_audio/just_audio.dart' show ProcessingState;
 import 'package:media_kit/media_kit.dart' hide AudioTrack;
@@ -46,6 +47,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _msgCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
+  final _inputFocusNode = FocusNode();
   List<Message> _messages = [];
   bool _loading = true;
   String? _filterSenderId;
@@ -67,6 +69,16 @@ class _ChatScreenState extends State<ChatScreen> {
     context.read<WsService>().sendReadReceipt(widget.channel.id);
     _resolvePostPermission();
     if (widget.channel.type == 'dm') _loadPeerInfo();
+    _inputFocusNode.onKeyEvent = (node, event) {
+      if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
+        if (HardwareKeyboard.instance.isAltPressed) {
+          return KeyEventResult.ignored;
+        }
+        _sendMessage();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    };
   }
 
   @override
@@ -244,6 +256,15 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_msgCtrl.text.trim().isEmpty) return;
     context.read<WsService>().sendMessage(widget.channel.id, _msgCtrl.text.trim());
     _msgCtrl.clear();
+    _scrollToBottom();
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollCtrl.hasClients) {
+        _scrollCtrl.animateTo(0, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+      }
+    });
   }
 
   void _sendMedia(MediaResult result) async {
@@ -639,6 +660,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: TextField(
                   controller: _msgCtrl,
+                  focusNode: _inputFocusNode,
                   minLines: 1,
                   maxLines: 5,
                   decoration: InputDecoration(
@@ -648,6 +670,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     contentPadding: const EdgeInsets.symmetric(vertical: 12),
                   ),
                   onSubmitted: (_) => _sendMessage(),
+
                 ),
               ),
             ),
