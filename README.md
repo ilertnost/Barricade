@@ -113,7 +113,7 @@ Config: `client/lib/config.dart` — set `serverUrl` to your server IP.
 
 - **KDE/Wayland screen share shows two dialogs** — KDE's `xdg-desktop-portal-kde` shows two user-visible dialogs: one for `SelectSources` and one for `Start`. This is KDE-specific behaviour (GNOME only shows one dialog). Other desktop environments may be affected — if you see an unexpected extra dialog during screen sharing, this is the cause. The functionality works correctly after accepting both dialogs.
 
-- **Screen share audio (Linux)** — Requires PipeWire for system audio loopback capture. Install `libpipewire-0.3` and ensure PipeWire/PulseAudio is running. Currently tested only on Arch Linux with KDE/Wayland.
+- **Screen share audio (Linux)** — Requires PulseAudio (via `libpulse` / `libpulse-simple`) for system audio loopback capture. Works on both native PulseAudio and PipeWire (via pipewire-pulse compatibility layer). Ensure PulseAudio is running.
 
 ## License
 
