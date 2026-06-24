@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:just_audio/just_audio.dart' show ProcessingState;
 import 'package:media_kit/media_kit.dart' hide AudioTrack;
@@ -23,11 +24,21 @@ import '../widgets/voice_recorder.dart';
 import '../widgets/video_circle.dart';
 import '../widgets/voice_room_panel.dart';
 
+String? _x11Vo() {
+  if (Platform.isLinux &&
+      Platform.environment['WAYLAND_DISPLAY'] == null &&
+      Platform.environment.containsKey('DISPLAY')) {
+    return 'x11';
+  }
+  return null;
+}
+
 class ChatScreen extends StatefulWidget {
   final Channel channel;
   final String? filterSenderId;
+  final bool embedded; // true when shown inside a desktop detail pane (no back button)
 
-  const ChatScreen({super.key, required this.channel, this.filterSenderId});
+  const ChatScreen({super.key, required this.channel, this.filterSenderId, this.embedded = false});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -36,6 +47,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _msgCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
+  final _inputFocusNode = FocusNode();
   List<Message> _messages = [];
   bool _loading = true;
   String? _filterSenderId;
@@ -45,6 +57,7 @@ class _ChatScreenState extends State<ChatScreen> {
   String _peerName = '';
   String? _peerId;
   bool _isContact = false;
+
 
   @override
   void initState() {
@@ -56,6 +69,16 @@ class _ChatScreenState extends State<ChatScreen> {
     context.read<WsService>().sendReadReceipt(widget.channel.id);
     _resolvePostPermission();
     if (widget.channel.type == 'dm') _loadPeerInfo();
+    _inputFocusNode.onKeyEvent = (node, event) {
+      if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
+        if (HardwareKeyboard.instance.isAltPressed) {
+          return KeyEventResult.ignored;
+        }
+        _sendMessage();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    };
   }
 
   @override
@@ -233,6 +256,15 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_msgCtrl.text.trim().isEmpty) return;
     context.read<WsService>().sendMessage(widget.channel.id, _msgCtrl.text.trim());
     _msgCtrl.clear();
+    _scrollToBottom();
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollCtrl.hasClients) {
+        _scrollCtrl.animateTo(0, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+      }
+    });
   }
 
   void _sendMedia(MediaResult result) async {
@@ -529,7 +561,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 : _formatLastSeen(_peerLastSeen))
             : typeLabel;
     return AppBar(
-      titleSpacing: 4,
+      titleSpacing: widget.embedded ? 12 : 4,
+      automaticallyImplyLeading: !widget.embedded,
       title: InkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: () => Navigator.push(context, MaterialPageRoute(
@@ -627,6 +660,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: TextField(
                   controller: _msgCtrl,
+                  focusNode: _inputFocusNode,
                   minLines: 1,
                   maxLines: 5,
                   decoration: InputDecoration(
@@ -636,6 +670,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     contentPadding: const EdgeInsets.symmetric(vertical: 12),
                   ),
                   onSubmitted: (_) => _sendMessage(),
+
                 ),
               ),
             ),
@@ -750,6 +785,7 @@ class _ChatScreenState extends State<ChatScreen> {
                             isOwn: isOwn,
                             isGroup: _isGroup,
                             showHeader: newSeries,
+                            embedded: widget.embedded,
                             selectionMode: _selectionMode,
                             selected: _selectedIds.contains(msg.id),
                             onLongPress: () => _toggleSelect(msg),
@@ -866,6 +902,7 @@ class _MessageBubble extends StatelessWidget {
   final bool isOwn;
   final bool isGroup;
   final bool showHeader;
+  final bool embedded;
   final VoidCallback? onTapSender;
   final VoidCallback? onPlayAudio;
   final bool selectionMode;
@@ -880,6 +917,7 @@ class _MessageBubble extends StatelessWidget {
     required this.isOwn,
     this.isGroup = false,
     this.showHeader = true,
+    this.embedded = false,
     this.onTapSender,
     this.onPlayAudio,
     this.selectionMode = false,
@@ -956,7 +994,9 @@ class _MessageBubble extends StatelessWidget {
     final showAvatarGutter = isGroup && !isOwn;
 
     final bubble = Container(
-      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.72),
+      constraints: BoxConstraints(maxWidth: embedded
+          ? MediaQuery.of(context).size.width * 0.3
+          : MediaQuery.of(context).size.width * 0.72),
       padding: hasMedia ? EdgeInsets.zero : const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(color: bubbleColor, borderRadius: radius),
       clipBehavior: Clip.antiAlias,
@@ -1201,7 +1241,12 @@ class _VideoContentState extends State<_VideoContent> {
   void initState() {
     super.initState();
     _player = Player();
-    _controller = VideoController(_player);
+    _controller = VideoController(
+      _player,
+      configuration: VideoControllerConfiguration(
+        vo: _x11Vo(),
+      ),
+    );
 
     _player.stream.videoParams.listen((_) {
       if (!mounted) return;
@@ -1437,7 +1482,12 @@ class _CircleFullscreenState extends State<_CircleFullscreen> {
   void initState() {
     super.initState();
     _player = Player();
-    _controller = VideoController(_player);
+    _controller = VideoController(
+      _player,
+      configuration: VideoControllerConfiguration(
+        vo: _x11Vo(),
+      ),
+    );
 
     _player.stream.videoParams.listen((_) {
       if (!mounted) return;
