@@ -10,7 +10,7 @@ Self-hosted messenger (LAN alpha, will be VPS-hosted). Go server + Flutter clien
 - Audio player with queue, repeat, shuffle, background playback
 - Channels: DM, group, public/private guilds
 - Material You themes (system/light/dark + accent color)
-- Audio/video calls (1-on-1) + screen sharing (1080/60) + voice rooms (mesh)
+- Audio/video calls (1-on-1) + screen sharing (1080/60, PC→Android) + voice rooms (mesh)
 - Mute channels/DMs, blacklist users
 - Password recovery via recovery phrase
 - Contacts: add/remove/search
@@ -18,6 +18,17 @@ Self-hosted messenger (LAN alpha, will be VPS-hosted). Go server + Flutter clien
 - Telegram-style input bar: morphing send/record button
 - Russian + English interface
 - Linux desktop build (Arch Linux, KDE 6, Wayland/X11)
+
+## Network Configuration
+
+Server runs on the local network and listens on `0.0.0.0:8080`.  
+**Current server IP**: `192.168.0.103:8080` (Redmi Note 13 Pro).
+
+To change the server address:
+- **Server**: Edit `server/cmd/server/main.go` → `addr` variable (default `:8080`).
+- **Client**: Edit `client/lib/config.dart` → `serverUrl` and `wsUrl`.
+
+If deploying on a different machine, change both files accordingly.
 
 ## Architecture
 
@@ -82,7 +93,7 @@ Config: `client/lib/config.dart` — set `serverUrl` to your server IP.
 - **Server**: Go, Chi router, SQLite (WAL mode), JWT auth
 - **Client**: Flutter, Material 3, Provider state management
 - **Audio**: just_audio + just_audio_background
-- **Video**: video_player
+- **Video**: media_kit (Linux) / video_player (Android)
 - **Calls**: flutter_webrtc
 
 ## Roadmap
@@ -93,8 +104,8 @@ Config: `client/lib/config.dart` — set `serverUrl` to your server IP.
 - [x] Password recovery
 - [x] Audio/video calls + screen sharing + voice rooms
 - [x] Desktop-adaptive UI
-- [ ] Reactions
-- [ ] UI redesign (Discord x Telegram style)
+- [x] Reactions
+- [x] UI redesign (Discord x Telegram style)
 - [ ] Cross-platform: iOS, macOS
 - [ ] VPS hosting
 
