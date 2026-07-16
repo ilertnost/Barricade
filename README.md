@@ -90,7 +90,7 @@ Config: `client/lib/config.dart` — set `serverUrl` to your server IP.
 - [x] Audio/video calls + screen sharing + voice rooms
 - [x] Reactions
 - [x] UI redesign (Discord x Telegram style)
-- [ ] Screen share viewing (Discord-style picture-in-picture)
+- [x] Screen share viewing (Discord-style picture-in-picture)
 - [ ] Chat settings (per-channel)
 
 ## Known Issues
